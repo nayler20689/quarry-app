@@ -643,145 +643,74 @@ function loadInvoices() {
     });
 }
 
-// دالة شاملة لجلب الفواتير، تحديث الأرشيف، تفعيل زر الحذف، وحساب الصندوق والمواد بدقة
+// دالة آمنة لجلب وعرض الفواتير والأرشيف مع زر الحذف فقط دون التأثير على الواجهة
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
-    
+    if (!archiveContainer) return;
+
     firebase.firestore().collection("invoices").get().then((querySnapshot) => {
         let invoicesList = [];
         querySnapshot.forEach((doc) => {
             invoicesList.push({ firebaseId: doc.id, ...doc.data() });
         });
 
-        // 1. عرض الأرشيف مع زر الحذف الفعال
-        if (archiveContainer) {
-            if (invoicesList.length === 0) {
-                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
-            } else {
-                let tableHTML = `
-                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
-                        <thead>
-                            <tr style="background:#f2f2f2;">
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                invoicesList.forEach((inv) => {
-                    const amount = Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
-                    tableHTML += `
-                        <tr>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
-                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
-                                <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                tableHTML += `</tbody></table>`;
-                archiveContainer.innerHTML = tableHTML;
-            }
+        if (invoicesList.length === 0) {
+            archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
+            return;
         }
 
-        // 2. تحديث خانات الصندوق المالي اليومي وحساب الرصيد الفعلي
-        updateCashBoxes(invoicesList);
-        
-        // 3. تحديث إحصاء المواد المباعة
-        updateMaterialsReport(invoicesList);
+        let tableHTML = `
+            <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
+                <thead>
+                    <tr style="background:#f2f2f2;">
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        invoicesList.forEach((inv) => {
+            const amount = Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
+            tableHTML += `
+                <tr>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
+                    <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+                        <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHTML += `</tbody></table>`;
+        archiveContainer.innerHTML = tableHTML;
 
     }).catch((error) => {
-        console.error("خطأ في جلب البيانات: ", error);
+        console.error("خطأ في جلب الأرشيف: ", error);
     });
 }
 
-// دالة حذف الفاتورة من سحابة فايربيس بشكل نهائي
+// دالة حذف الفاتورة من السحاب
 window.deleteInvoice = function(firebaseId) {
     if (!firebaseId) return;
     
     if (confirm("هل أنت متأكد من حذف هذه الفاتورة نهائياً؟")) {
         firebase.firestore().collection("invoices").doc(firebaseId).delete().then(() => {
             alert("تم الحذف بنجاح!");
-            loadInvoices(); // تحديث فوري للبيانات
+            loadInvoices();
         }).catch((error) => {
             console.error("خطأ في الحذف: ", error);
         });
     }
 };
 
-// حساب وتحديث خانات الصندوق اليومي والرصيد
-function updateCashBoxes(invoices) {
-    let totalSales = 0;
-    invoices.forEach(inv => {
-        totalSales += Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
-    });
-
-    // استهداف بطاقات الصندوق اليومي بناءً على ترتيبها في الواجهة
-    const boxes = document.querySelectorAll('.cash-box-today, div[style*="background"], div');
-    
-    // تحديث صندوق مبيعات النقد اليوم (البطاقة الأولى) وباقي الحسابات
-    boxes.forEach(box => {
-        if (box.textContent && box.textContent.includes('مبيعات النقد اليوم')) {
-            let nums = box.querySelectorAll('div, span');
-            nums.forEach(n => {
-                if (n.textContent.includes('$')) {
-                    n.innerText = '$' + totalSales.toFixed(2);
-                }
-            });
-        }
-        // تحديث الرصيد الصافي الفعلي في نهاية اليوم
-        if (box.textContent && box.textContent.includes('الرصيد الصافي الفعلي')) {
-            let balanceEl = box.querySelector('span, div') || box;
-            if (balanceEl) {
-                balanceEl.innerHTML = `الرصيد الصافي الفعلي بالصندوق في نهاية اليوم: <span style="color:#27ae60;">$${totalSales.toFixed(2)}</span>`;
-            }
-        }
-    });
-}
-
-// تحديث جدول إحصاء المواد المباعة
-function updateMaterialsReport(invoices) {
-    const materialsBody = document.getElementById('materialsStatsBody');
-    if (!materialsBody) return;
-
-    let materialsMap = {};
-    invoices.forEach(inv => {
-        if (inv.items && Array.isArray(inv.items)) {
-            inv.items.forEach(item => {
-                let name = item.name || item.material || 'مادة عامة';
-                let qty = Number(item.qty || item.quantity || 0);
-                if (!materialsMap[name]) materialsMap[name] = 0;
-                materialsMap[name] += qty;
-            });
-        }
-    });
-
-    let html = '';
-    for (let mat in materialsMap) {
-        html += `<tr><td style="padding:8px; border:1px solid #ddd;">${mat}</td><td style="padding:8px; border:1px solid #ddd;">${materialsMap[mat]} م3</td></tr>`;
-    }
-    if (html === '') {
-        html = '<tr><td colspan="2" style="text-align:center; padding:10px; color:#666;">لا توجد مواد مسجلة حتى الآن</td></tr>';
-    }
-    materialsBody.innerHTML = html;
-}
-
-// التشغيل التلقائي عند تحميل الصفحة وعند الضغط على الأزرار
+// التشغيل الأساسي عند التحميل
 window.addEventListener('DOMContentLoaded', () => {
     loadInvoices();
-
-    const buttons = document.querySelectorAll('button, .tab-btn');
-    buttons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            setTimeout(loadInvoices, 150);
-        });
-    });
 });
