@@ -584,3 +584,32 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
 });
+// دالة لجلب وعرض الفواتير في جداول المحاسب أو المشرف
+function loadInvoices() {
+    // التأكد من أننا في صفحة تحتوي على جدول الأرشيف أو مبيعات اليوم
+    const archiveTable = document.getElementById('archiveTableBody'); // أو اسم جدول الأرشيف لديك
+    if (!archiveTable) return;
+
+    // جلب البيانات من سحابة Firebase مرتبة تنازلياً
+    firebase.firestore().collection("invoices").get().then((querySnapshot) => {
+        archiveTable.innerHTML = ""; // تفريغ الجدول قبل إعادة التعبئة
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            
+            // إضافة صف جديد لكل فاتورة في الجدول
+            archiveTable.innerHTML += `
+                <tr>
+                    <td>${inv.customerName || '---'}</td>
+                    <td>${inv.carNumber || '---'}</td>
+                    <td>${inv.paymentStatus || '---'}</td>
+                    <td>$${inv.totalAmount || 0}</td>
+                </tr>
+            `;
+        });
+    }).catch((error) => {
+        console.error("خطأ في جلب الفواتير: ", error);
+    });
+}
+
+// استدعاء الدالة تلقائياً بمجرد فتح الصفحة
+window.addEventListener('DOMContentLoaded', loadInvoices);
