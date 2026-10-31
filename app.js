@@ -643,7 +643,12 @@ function loadInvoices() {
     });
 }
 
-// دالة آمنة لجلب وعرض الفواتير والأرشيف مع زر الحذف فقط دون التأثير على الواجهة
+// تهيئة الأداء والتشغيل التلقائي لجلب الأرشيف وحفظ الفواتير
+document.addEventListener("DOMContentLoaded", () => {
+    loadInvoices();
+});
+
+// دالة جلب وعرض الأرشيف وزر الحذف
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
     if (!archiveContainer) return;
@@ -709,8 +714,3 @@ window.deleteInvoice = function(firebaseId) {
         });
     }
 };
-
-// التشغيل الأساسي عند التحميل
-window.addEventListener('DOMContentLoaded', () => {
-    loadInvoices();
-});
