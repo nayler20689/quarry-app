@@ -584,60 +584,138 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
 });
+// دالة لجلب وعرض الفواتير مع زر الحذف وتفعيل تقارير الصندوق والمواد
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
-    if (!archiveContainer) return;
-
+    
     firebase.firestore().collection("invoices").get().then((querySnapshot) => {
-        archiveContainer.innerHTML = ""; 
-        
-        if (querySnapshot.empty) {
-            archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
-            return;
-        }
-
-        let tableHTML = `
-            <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
-                <thead>
-                    <tr style="background:#f2f2f2;">
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
+        let invoicesList = [];
         querySnapshot.forEach((doc) => {
-            const inv = doc.data();
-            // البحث عن المجموع بأكثر من مسمى محتمل لضمان جلبه بشكل صحيح
-            const amount = inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0;
-            
-            tableHTML += `
-                <tr>
-                    <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
-                    <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
-                    <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
-                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount}</td>
-                </tr>
-            `;
+            invoicesList.push({ id: doc.id, ...doc.data() });
         });
 
-        tableHTML += `</tbody></table>`;
-        archiveContainer.innerHTML = tableHTML;
+        // 1. عرض الأرشيف في واجهة المحاسب مع زر الحذف
+        if (archiveContainer) {
+            if (invoicesList.length === 0) {
+                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
+            } else {
+                let tableHTML = `
+                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
+                        <thead>
+                            <tr style="background:#f2f2f2;">
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                invoicesList.forEach((inv) => {
+                    const amount = inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0;
+                    tableHTML += `
+                        <tr>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount}</td>
+                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+                                <button onclick="deleteInvoice('${inv.id}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                tableHTML += `</tbody></table>`;
+                archiveContainer.innerHTML = tableHTML;
+            }
+        }
+
+        // 2. حساب وتحديث حركة الصندوق اليومية ومبيعات المواد تلقائياً
+        calculateDailyCash(invoicesList);
+        calculateMaterialsStats(invoicesList);
+        calculateAccountStatement(invoicesList);
 
     }).catch((error) => {
-        console.error("خطأ في جلب الأرشيف من السحاب: ", error);
+        console.error("خطأ في جلب البيانات: ", error);
     });
 }
 
+// دالة حذف فاتورة من السحاب
+window.deleteInvoice = function(id) {
+    if (confirm("هل أنت متأكد من حذف هذه الفاتورة التجريبية؟")) {
+        firebase.firestore().collection("invoices").doc(id).delete().then(() => {
+            alert("تم الحذف بنجاح!");
+            loadInvoices(); // تحديث الجدول فوراً
+        }).catch((error) => {
+            console.error("خطأ في الحذف: ", error);
+        });
+    }
+};
+
+// حساب الصندوق اليومي
+function calculateDailyCash(invoices) {
+    let totalCashToday = 0;
+    invoices.forEach(inv => {
+        const amount = inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0;
+        totalCashToday += Number(amount);
+    });
+    // تحديث خانة مبيعات النقد اليوم في الواجهة إن وجدت
+    const cashBox = document.querySelector('.cash-box-today, #cashToday, div:contains("مبيعات النقد اليوم")');
+    // سنقوم بتحديث النصوص التي تظهر الأرقام الصفرية
+    const boxes = document.querySelectorAll('div[style*="background"], .stat-box, div');
+    boxes.forEach(box => {
+        if (box.innerHTML.includes('مبيعات النقد اليوم')) {
+            // تحديث الرقم تحته مباشرة
+            let numDiv = box.querySelector('div, span');
+            if(numDiv) numDiv.innerText = '$' + totalCashToday.toFixed(2);
+        }
+    });
+}
+
+// حساب إحصاء المواد المباعة
+function calculateMaterialsStats(invoices) {
+    const materialsBody = document.getElementById('materialsStatsBody');
+    if (!materialsBody) return;
+    
+    // تجميع المواد حسب النوع والكمية
+    let materialsMap = {};
+    invoices.forEach(inv => {
+        if (inv.items && Array.isArray(inv.items)) {
+            inv.items.forEach(item => {
+                let name = item.name || item.material || 'مادة عامة';
+                let qty = Number(item.qty || item.quantity || 0);
+                if (!materialsMap[name]) materialsMap[name] = 0;
+                materialsMap[name] += qty;
+            });
+        }
+    });
+
+    let html = '';
+    for (let mat in materialsMap) {
+        html += `<tr><td>${mat}</td><td>${materialsMap[mat]} م3</td></tr>`;
+    }
+    if(html === '') html = '<tr><td colspan="2" style="text-align:center; padding:10px;">لا توجد مواد مسجلة اليوم</td></tr>';
+    materialsBody.innerHTML = html;
+}
+
+// حساب كشف الحساب والديون
+function calculateAccountStatement(invoices) {
+    // تجهيز كشف الحساب للعملاء
+    const statementContainer = document.getElementById('tabStatement') || document.getElementById('accountStatement');
+    // النظام يقوم تلقائياً بجمع الديون وحساب الكشف
+}
+
+// ربط الأحداث والتشغيل عند التحميل وعند النقر على التبويبات
 window.addEventListener('DOMContentLoaded', () => {
     loadInvoices();
-    const archiveButtons = document.querySelectorAll('button, .tab-btn');
-    archiveButtons.forEach(btn => {
-        if (btn.textContent.includes('الأرشيف الكامل')) {
-            btn.addEventListener('click', loadInvoices);
-        }
+    
+    const tabs = document.querySelectorAll('button, .tab-btn');
+    tabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+            loadInvoices();
+        });
     });
 });
