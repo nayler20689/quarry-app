@@ -6,13 +6,12 @@
     <title>لوحة تحكم المشرف العام - إدارة المقالع</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <style>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <style>
         .chat-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.3); width: 400px; max-width: 90%; z-index: 1000; }
         .chat-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
         
-        /* تنسيق جدول المقالع */
         .quarries-table {
             width: 100%;
             border-collapse: collapse;
@@ -29,7 +28,7 @@
             font-size: 14px;
         }
         .quarries-table th {
-            background: #1e3a8a;
+            background: #8B5A2B;
             color: white;
         }
         .quarries-table tr:hover {
@@ -49,19 +48,20 @@
         </header>
 
        <div class="dashboard-grid">
-    <div class="stat-card">
-        <h4>إجمالي مبيعات المقالع ($)</h4>
-        <div class="number" id="totalSalesVal">0.00 $</div>
-    </div>
-    <div class="stat-card">
-        <h4>إجمالي الديون القائمة ($)</h4>
-        <div class="number" style="color: #c0392b;" id="totalDebtsVal">0.00 $</div>
-    </div>
-    <div class="stat-card">
-        <h4>صافي الأرباح ($)</h4>
-        <div class="number" style="color: #27ae60;" id="netProfitVal">0.00 $</div>
-    </div>
-</div>
+            <div class="stat-card" style="background:#fff; padding:15px; border:1px solid #ddd; border-radius:6px;">
+                <h4>إجمالي مبيعات المقالع ($)</h4>
+                <div class="number" id="totalSalesVal" style="font-size:22px; font-weight:bold; color:#2c3e50;">0.00 $</div>
+            </div>
+            <div class="stat-card" style="background:#fff; padding:15px; border:1px solid #ddd; border-radius:6px;">
+                <h4>إجمالي المصاريف اليومية ($)</h4>
+                <div class="number" style="color: #c0392b; font-size:22px; font-weight:bold;" id="totalExpensesVal">0.00 $</div>
+            </div>
+            <div class="stat-card" style="background:#fff; padding:15px; border:1px solid #ddd; border-radius:6px;">
+                <h4>صافي الأرباح (المبيعات - المصاريف)</h4>
+                <div class="number" style="color: #27ae60; font-size:22px; font-weight:bold;" id="netProfitVal">0.00 $</div>
+            </div>
+        </div>
+
         <!-- جدول المقالع النشطة تفصيلياً مع زر الأرشيف -->
         <div style="margin-top: 30px;">
             <h2 style="font-size: 18px; color: #2c3e50; margin-bottom: 10px;">جدول تفاصيل وحالة المقالع النشطة</h2>
@@ -77,7 +77,7 @@
                     </tr>
                 </thead>
                 <tbody id="quarriesTableBody">
-                    <!-- تعبئة الجدول تلقائياً -->
+                    <tr><td colspan="6" style="text-align:center; padding:15px;">جاري جلب البيانات من السحابة...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -108,7 +108,9 @@
                         <th>مراسلة</th>
                     </tr>
                 </thead>
-                <tbody id="masterTableBody"></tbody>
+                <tbody id="masterTableBody">
+                    <tr><td colspan="8" style="text-align:center; padding:15px;">جاري التحميل...</td></tr>
+                </tbody>
             </table>
         </div>
     </div>
@@ -134,19 +136,37 @@
     </div>
 
     <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBAv3wyk1ONLYNg26ePLv3NaySH53J3jNs",
+            authDomain: "quarry-management-system-6f034.firebaseapp.com",
+            projectId: "quarry-management-system-6f034",
+            storageBucket: "quarry-management-system-6f034.firebasestorage.app",
+            messagingSenderId: "933605044706",
+            appId: "1:933605044706:web:1bb04329cad15d6b77c9bb"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const invoicesCollection = db.collection("invoices");
+
         let currentTargetQuarry = '';
         let pieChartInstance = null;
-
-        function getMasterInvoices() {
-            return JSON.parse(localStorage.getItem('crusher_invoices') || '[]');
-        }
+        let globalInvoices = [];
 
         function initMasterDashboard() {
-            const invoices = getMasterInvoices();
-            renderTable(invoices);
-            calculateStats(invoices);
-            renderQuarriesTable(invoices);
-            renderChart(invoices);
+            invoicesCollection.get().then((querySnapshot) => {
+                globalInvoices = [];
+                querySnapshot.forEach((doc) => {
+                    globalInvoices.push({ firebaseId: doc.id, ...doc.data() });
+                });
+
+                renderTable(globalInvoices);
+                calculateStats(globalInvoices);
+                renderQuarriesTable(globalInvoices);
+                renderChart(globalInvoices);
+            }).catch((error) => {
+                console.error("خطأ في جلب بيانات المشرف السحابية:", error);
+            });
         }
 
         function renderTable(invoices) {
@@ -154,21 +174,22 @@
             tbody.innerHTML = '';
 
             if (invoices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:15px;">لا توجد عمليات مسجلة حتى الآن.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:15px;">لا توجد عمليات مسجلة حتى الآن في السحابة.</td></tr>';
                 return;
             }
 
             invoices.slice().reverse().forEach(row => {
                 const qName = row.quarryName || 'مقلع غير مسمى';
+                const amount = Number(row.grandTotal || 0);
                 tbody.innerHTML += `
                     <tr>
-                        <td><b style="color:#2980b9;">${qName}</b></td>
-                        <td><b>#${row.queueNumber || 1}</b></td>
-                        <td>${row.date}</td>
-                        <td><b>${row.customerName}</b></td>
-                        <td>${row.carNumber}</td>
-                        <td><b>${row.grandTotal}</b></td>
-                        <td style="color:${row.paymentStatus.includes('دين') ? 'red' : 'green'}; font-weight:bold;">${row.paymentStatus}</td>
+                        <td><b style="color:#8B5A2B;">${qName}</b></td>
+                        <td><b>#${row.turnNumber || row.queueNumber || 1}</b></td>
+                        <td>${row.date || '---'}</td>
+                        <td><b>${row.customerName || '---'}</b></td>
+                        <td>${row.carNumber || '---'}</td>
+                        <td><b>$${amount.toFixed(2)}</b></td>
+                        <td style="color:${row.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${row.paymentStatus || '---'}</td>
                         <td>
                             <button style="background:#8e44ad; color:white; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;" onclick="openChat('${qName}')">💬 مراسلة</button>
                         </td>
@@ -178,18 +199,21 @@
         }
 
         function calculateStats(invoices) {
-            let totalSales = 0, totalDebts = 0;
+            let totalSales = 0, totalExpenses = 0;
             invoices.forEach(r => {
-                const val = parseFloat(r.grandTotal.replace('$', '')) || 0;
+                const val = Number(r.grandTotal || 0);
                 totalSales += val;
-                if (r.paymentStatus && r.paymentStatus.includes('دين')) totalDebts += val;
+                // إذا كانت هناك مصاريف مسجلة ضمن الفاتورة أو البنود يمكن إضافتها هنا
+                // حالياً تم جعل المصاريف الافتراضية 0 لحين ربط جدول المصاريف المستقل
             });
-            document.getElementById('totalSalesVal').innerText = totalSales.toFixed(2) + ' $';
-            document.getElementById('totalDebtsVal').innerText = totalDebts.toFixed(2) + ' $';
-            document.getElementById('netProfitVal').innerText = (totalSales - totalDebts).toFixed(2) + ' $';
+
+            const netProfit = totalSales - totalExpenses;
+
+            document.getElementById('totalSalesVal').innerText = '$' + totalSales.toFixed(2);
+            document.getElementById('totalExpensesVal').innerText = '$' + totalExpenses.toFixed(2);
+            document.getElementById('netProfitVal').innerText = '$' + netProfit.toFixed(2);
         }
 
-        // عرض جدول المقالع التفاعلي مع زر الدخول للأرشيف
         function renderQuarriesTable(invoices) {
             const tbody = document.getElementById('quarriesTableBody');
             tbody.innerHTML = '';
@@ -201,8 +225,8 @@
                     quarriesData[qName] = { cashSales: 0, debtSales: 0, expenses: 0 };
                 }
 
-                const val = parseFloat(r.grandTotal.replace('$', '')) || 0;
-                if (r.paymentStatus && r.paymentStatus.includes('دين')) {
+                const val = Number(r.grandTotal || 0);
+                if (r.paymentStatus === 'دين') {
                     quarriesData[qName].debtSales += val;
                 } else {
                     quarriesData[qName].cashSales += val;
@@ -212,4 +236,121 @@
             const allKeys = Object.keys(quarriesData);
 
             if (allKeys.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:15px;">لا توجد مقالع نشطة مسجلة.</td></tr>';
+                return;
+            }
+
+            allKeys.forEach(qName => {
+                const data = quarriesData[qName];
+                const totalMove = data.cashSales + data.debtSales;
+                tbody.innerHTML += `
+                    <tr>
+                        <td><b>${qName}</b></td>
+                        <td style="color:#27ae60; font-weight:bold;">$${data.cashSales.toFixed(2)}</td>
+                        <td style="color:#c0392b; font-weight:bold;">$${data.debtSales.toFixed(2)}</td>
+                        <td>$${data.expenses.toFixed(2)}</td>
+                        <td><b>$${totalMove.toFixed(2)}</b></td>
+                        <td>
+                            <button style="background:#2980b9; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="openArchiveModal('${qName}')">عرض الأرشيف</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderChart(invoices) {
+            const quarriesData = {};
+            invoices.forEach(r => {
+                const qName = r.quarryName || 'مقلع رئيسي';
+                const val = Number(r.grandTotal || 0);
+                quarriesData[qName] = (quarriesData[qName] || 0) + val;
+            });
+
+            const labels = Object.keys(quarriesData);
+            const dataVals = Object.values(quarriesData);
+
+            const ctx = document.getElementById('quarryPieChart').getContext('2d');
+            if (pieChartInstance) pieChartInstance.destroy();
+
+            pieChartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels.length ? labels : ['لا توجد بيانات'],
+                    datasets: [{
+                        data: dataVals.length ? dataVals : [1],
+                        backgroundColor: ['#8B5A2B', '#2980b9', '#27ae60', '#e67e22', '#8e44ad', '#e74c3c']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        function openArchiveModal(quarryName) {
+            document.getElementById('archiveModalTitle').innerText = 'أرشيف فواتير: ' + quarryName;
+            const contentDiv = document.getElementById('archiveModalContent');
+            const quarryInvoices = globalInvoices.filter(i => (i.quarryName || 'مقلع رئيسي') === quarryName);
+
+            if (quarryInvoices.length === 0) {
+                contentDiv.innerHTML = '<p style="text-align:center; padding:15px;">لا توجد فواتير مسجلة لهذا المقلع.</p>';
+            } else {
+                let html = '<table class="items-table" style="width:100%; font-size:12px;"><thead><tr><th>الدور</th><th>التاريخ</th><th>الزبون</th><th>الإجمالي</th><th>الحالة</th></tr></thead><tbody>';
+                quarryInvoices.forEach(inv => {
+                    html += `<tr><td>#${inv.turnNumber || inv.queueNumber || 1}</td><td>${inv.date}</td><td>${inv.customerName}</td><td>$${Number(inv.grandTotal).toFixed(2)}</td><td>${inv.paymentStatus}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                contentDiv.innerHTML = html;
+            }
+
+            document.getElementById('archiveModal').style.display = 'block';
+            document.getElementById('archiveOverlay').style.display = 'block';
+        }
+
+        function closeArchiveModal() {
+            document.getElementById('archiveModal').style.display = 'none';
+            document.getElementById('archiveOverlay').style.display = 'none';
+        }
+
+        function openChat(quarryName) {
+            currentTargetQuarry = quarryName;
+            document.getElementById('chatTargetTitle').innerText = 'مراسلة مقلع: ' + quarryName;
+            loadModalMessages();
+            document.getElementById('chatModal').style.display = 'block';
+            document.getElementById('chatOverlay').style.display = 'block';
+        }
+
+        function closeChat() {
+            document.getElementById('chatModal').style.display = 'none';
+            document.getElementById('chatOverlay').style.display = 'none';
+        }
+
+        function loadModalMessages() {
+            const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
+            const box = document.getElementById('modalChatMsgs');
+            box.innerHTML = '';
+            msgs.forEach(m => {
+                if (m.sender === currentTargetQuarry || m.receiver === currentTargetQuarry) {
+                    box.innerHTML += `<div style="margin-bottom:5px;"><strong>${m.sender}:</strong> ${m.text} <span style="font-size:9px; color:#888;">${m.time}</span></div>`;
+                }
+            });
+        }
+
+        function sendMasterMessage() {
+            const text = document.getElementById('modalMsgInput').value.trim();
+            if (!text) return;
+            const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
+            msgs.push({
+                id: Date.now(),
+                sender: "المشرف العام",
+                receiver: currentTargetQuarry,
+                text: text,
+                time: new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })
+            });
+            localStorage.setItem('quarry_messages', JSON.stringify(msgs));
+            document.getElementById('modalMsgInput').value = '';
+            loadModalMessages();
+        }
+
+        document.addEventListener("DOMContentLoaded", initMasterDashboard);
+    </script>
+</body>
+</html>
