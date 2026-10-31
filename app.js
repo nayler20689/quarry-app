@@ -584,7 +584,7 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
 });
-// دالة لجلب وعرض الأرشيف في واجهة المحاسب
+// دالة لجلب وعرض الفواتير في قسم الأرشيف الكامل
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
     if (!archiveContainer) return;
@@ -592,15 +592,19 @@ function loadInvoices() {
     firebase.firestore().collection("invoices").get().then((querySnapshot) => {
         archiveContainer.innerHTML = ""; // تفريغ القائمة قبل العرض
         
-        // إنشاء جدول داخل الحاوية لعرض الفواتير بشكل أنيق
+        if (querySnapshot.empty) {
+            archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
+            return;
+        }
+
         let tableHTML = `
-            <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse;">
+            <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
                 <thead>
                     <tr style="background:#f2f2f2;">
-                        <th style="padding:8px; border:1px solid #ddd;">الزكون/الشركة</th>
-                        <th style="padding:8px; border:1px solid #ddd;">السائق</th>
-                        <th style="padding:8px; border:1px solid #ddd;">حالة الدفع</th>
-                        <th style="padding:8px; border:1px solid #ddd;">المجموع ($)</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -610,10 +614,10 @@ function loadInvoices() {
             const inv = doc.data();
             tableHTML += `
                 <tr>
-                    <td style="padding:8px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
-                    <td style="padding:8px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
-                    <td style="padding:8px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
-                    <td style="padding:8px; border:1px solid #ddd;">$${inv.totalAmount || 0}</td>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
+                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${inv.totalAmount || 0}</td>
                 </tr>
             `;
         });
@@ -622,8 +626,19 @@ function loadInvoices() {
         archiveContainer.innerHTML = tableHTML;
 
     }).catch((error) => {
-        console.error("خطأ في جلب الأرشيف: ", error);
+        console.error("خطأ في جلب الأرشيف من السحاب: ", error);
     });
 }
 
-window.addEventListener('DOMContentLoaded', loadInvoices);
+// تشغيل الدالة عند تحميل الصفحة وأيضاً ربطها بزر الأرشيف لضمان ظهورها فور النقر عليه
+window.addEventListener('DOMContentLoaded', () => {
+    loadInvoices();
+    
+    // البحث عن زر الأرشيف الكامل وتحديث البيانات فور الضغط عليه
+    const archiveButtons = document.querySelectorAll('button, .tab-btn');
+    archiveButtons.forEach(btn => {
+        if (btn.textContent.includes('الأرشيف الكامل')) {
+            btn.addEventListener('click', loadInvoices);
+        }
+    });
+});
