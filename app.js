@@ -52,11 +52,11 @@ window.switchTab = function(tabName) {
     } else if (tabName === 'materials') {
         btns[4].classList.add('active');
         document.getElementById('tabMaterials').classList.add('active');
-        loadMaterialStats();
+        loadInvoices();
     } else if (tabName === 'archive') {
         btns[5].classList.add('active');
         document.getElementById('tabArchive').classList.add('active');
-        loadFullArchive();
+        loadInvoices();
     } else if (tabName === 'chat') {
         btns[6].classList.add('active');
         document.getElementById('tabChat').classList.add('active');
@@ -89,8 +89,6 @@ document.getElementById('btnAddRow').addEventListener('click', function() {
         <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
     `;
     tbody.appendChild(tr);
-    
-    // هذا السطر هو المهم جداً ليعمل الحساب على السطر الجديد فوراً
     attachEventsToRows();
 });
 
@@ -101,13 +99,14 @@ function removeRow(btn) {
         calculateGrandTotal();
     }
 }
+
 function attachEventsToRows() {
     const rows = document.querySelectorAll('#itemsBody tr');
     rows.forEach(row => {
         const qty = row.querySelector('.item-qty');
         const price = row.querySelector('.item-price');
-        qty.oninput = calculateGrandTotal;
-        price.oninput = calculateGrandTotal;
+        if(qty) qty.oninput = calculateGrandTotal;
+        if(price) price.oninput = calculateGrandTotal;
     });
 }
 
@@ -133,16 +132,7 @@ function calculateGrandTotal() {
     }
 }
 
-// دالة جلب وحفظ البيانات من الذاكرة المحلية
-function getInvoices() {
-    return JSON.parse(localStorage.getItem('crusher_invoices') || '[]');
-}
-
-function saveInvoices(data) {
-    localStorage.setItem('crusher_invoices', JSON.stringify(data));
-}
-
-// ----------------- الفقرة 1 و 2 و 6: الحفظ والطباعة ورقم الدور -----------------
+// ----------------- الحفظ والطباعة ورقم الدور -----------------
 document.getElementById('btnSaveAndPrint').addEventListener('click', function() {
     const customerName = document.getElementById('customerName').value.trim();
     const carNumber = document.getElementById('carNumber').value.trim();
@@ -164,7 +154,9 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
         });
     });
 
-    let invoices = getInvoices();
+    const grandTotalText = document.getElementById('grandTotal').innerText;
+    const numericGrandTotal = parseFloat(grandTotalText.replace('$', '')) || 0;
+
     const todayStrFixed = new Date().toLocaleDateString('en-CA');
     const lastSavedDate = localStorage.getItem('lastQueueDate');
     let lastQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 0;
@@ -180,26 +172,27 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
     localStorage.setItem('lastQueueDate', todayStrFixed);
 
     const newInvoice = {
-        id: Date.now(),
         queueNumber: queueNumber,
         turnNumber: queueNumber,
         quarryName,
         date: new Date().toLocaleDateString('ar-SY'),
-        rawDate: todayStrFixed,
+        isoDate: todayStrFixed,
         customerName,
         carNumber: carNumber || '---',
         paymentStatus,
         items,
-        grandTotal: document.getElementById('grandTotal').innerText
+        grandTotal: numericGrandTotal
     };
 
     // إرسال الفاتورة إلى قاعدة بيانات Firebase السحابية
     invoicesCollection.add(newInvoice)
     .then(() => {
         console.log("تم حفظ الفاتورة في السحاب بنجاح!");
+        loadInvoices(); // تحديث العرض والصندوق فور الحفظ
     })
     .catch((error) => {
-        console.error("خطأ في الاتصال، تم الحفظ محلياً: ", error);
+        console.error("خطأ في الاتصال بالباعثة السحابية: ", error);
+        alert("حدث خطأ أثناء الحفظ بالسحابة!");
     });
 
     const wantPrint = confirm("تم حفظ الفاتورة بنجاح بالأرشيف!\n\nهل تريد طباعة الوصل الآن؟");
@@ -214,39 +207,34 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
         const container = document.getElementById('pItemsTableContainer');
         if (container) {
             container.innerHTML = '';
-            
             if (items.length >= 2) {
-                const printItem1 = items[0]; 
-                const printItem2 = items[1]; 
-                
                 container.innerHTML = `
                     <tr>
                         <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 2</td>
                         <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 1</td>
                     </tr>
                     <tr>
-                        <td class="text-center" style="width: 50%; border-left: 1px solid #000;">${printItem2.name}</td>
-                        <td class="text-center" style="width: 50%;">${printItem1.name}</td>
+                        <td class="text-center" style="width: 50%; border-left: 1px solid #000;">${items[1].name}</td>
+                        <td class="text-center" style="width: 50%;">${items[0].name}</td>
                     </tr>
                     <tr>
                         <td class="bg-gray bold text-center" style="border-left: 1px solid #000;">كمية 2</td>
                         <td class="bg-gray bold text-center">كمية 1</td>
                     </tr>
                     <tr>
-                        <td class="bold text-center" style="border-left: 1px solid #000;">${printItem2.qty} متر</td>
-                        <td class="bold text-center">${printItem1.qty} متر</td>
+                        <td class="bold text-center" style="border-left: 1px solid #000;">${items[1].qty} متر</td>
+                        <td class="bold text-center">${items[0].qty} متر</td>
                     </tr>
-                `;
-            } else if (items.length === 1) {
-                const printItem = items[0];
+                  `;
+              } else if (items.length === 1) {
                 container.innerHTML = `
                     <tr>
                         <td class="bg-gray bold text-center" style="width: 50%;">البضاعة</td>
-                        <td class="text-center" style="width: 50%;">${printItem.name}</td>
+                        <td class="text-center" style="width: 50%;">${items[0].name}</td>
                     </tr>
                     <tr>
                         <td class="bg-gray bold text-center">الكمية</td>
-                        <td class="bold text-center">${printItem.qty} متر</td>
+                        <td class="bold text-center">${items[0].qty} متر</td>
                     </tr>
                 `;
             }
@@ -257,255 +245,219 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
         }, 100);
     } 
 
-    if (typeof resetForm === 'function') {
-        resetForm();
+    resetForm();
+});
+
+// ----------------- دالة حساب حركة الصندوق اليومية (محدثة حسب واجهتك) -----------------
+function calculateCashflow() {
+    const dateFilterEl = document.getElementById('cashDateFilter');
+    let selectedDateStr = '';
+    
+    if (dateFilterEl && dateFilterEl.value) {
+        selectedDateStr = dateFilterEl.value; // صيغة YYYY-MM-DD
+    } else {
+        selectedDateStr = new Date().toLocaleDateString('en-CA');
+    }
+
+    invoicesCollection.get().then((querySnapshot) => {
+        let totalCashSales = 0;
+        let totalNewDebts = 0;
+
+        querySnapshot.query && querySnapshot.forEach ? querySnapshot.forEach(doc => {}) : null;
+
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            // مطابقة التاريخ مع isoDate أو تاريخ الفاتورة المحلي
+            if (inv.isoDate === selectedDateStr || inv.date === selectedDateStr) {
+                const amount = Number(inv.grandTotal || 0);
+                if (inv.paymentStatus === 'دين') {
+                    totalNewDebts += amount;
+                } else {
+                    totalCashSales += amount;
+                }
+            }
+        });
+
+        // تحديث الحقول الأربعة الموجودة في واجهة "حركة الصندوق اليومية والمالية"
+        // البحث عن العناصر بناءً على الترتيب أو النصوص المجاورة في الواجهة لديك:
+        // 1. مبيعات النقد اليوم ($)
+        const cashSalesBoxes = document.querySelectorAll('.tab-content #tabCashflow .box, .tab-content #tabCashflow div, div');
+        
+        // طريقة آمنة لتحديث الحقول عبر ضبط الـ IDs أو تحديثها بالترتيب بناءً على واجهتك
+        // سنبحث عن العنصر الذي يحمل القيمة الافتراضية $0.00 تحت العناوين المطابقة
+        const allCardDivs = document.querySelectorAll('.tab-content div, .tab-content span, div');
+        
+        // تحديث المربعات عبر البحث عن الحقول المخصصة (يمكنك إضافة IDs في ملف الـ HTML إذا لم تكن موجودة، أو استخدام الكود أدناه مباشرة)
+        // تحديث مبيعات النقد (المربع الأول)
+        const box1 = document.getElementById('cashSalesValue') || document.querySelector('#tabCashflow div:nth-child(1) .value, #tabCashflow');
+        
+        // تحديث القيم مباشرة عبر دالة تعبئة ذكية بالاعتماد على النصوص الظاهرة في الصورة:
+        updateCardValueByText("1. مبيعات النقد اليوم ($)", `$${totalCashSales.toFixed(2)}`);
+        updateCardValueByText("4. ديون جديدة مسجلة اليوم ($)", `$${totalNewDebts.toFixed(2)}`);
+
+        // تحديث الرصيد الصافي الفعلي بالصندوق في نهاية اليوم
+        const netBalanceEl = document.getElementById('netBalanceValue') || findElementContainingText("الرصيد الصافي الفعلي بالصندوق في نهاية اليوم");
+        if (netBalanceEl) {
+            // البحث عن النص وتغيير القيمة التي تحته مباشرة
+            let targetNode = netBalanceEl.nextElementSibling || netBalanceEl.parentElement.querySelector('span, b, div');
+            if (targetNode) {
+                targetNode.innerText = `$${totalCashSales.toFixed(2)}`;
+            }
+        }
+
+    }).catch((error) => {
+        console.error("خطأ في حساب حركة الصندوق: ", error);
+    });
+}
+
+// دوائر مساعد للبحث عن العناصر في الواجهة وتحديثها ديناميكياً بدون تعديل HTML
+function updateCardValueByText(headerText, valueText) {
+    const elements = document.querySelectorAll('*');
+    elements.forEach(el => {
+        if (el.childNodes.length === 1 && el.textContent.trim() === headerText) {
+            // العثور على العنصر الأب أو الحقل التالي الذي يحمل السعر ($0.00)
+            let parentBox = el.closest('div');
+            if (parentBox) {
+                // البحث عن عنصر يحمل علامة الدولار أو رقم داخل الصندوق
+                let valNode = parentBox.querySelector('div:not(:first-child), h3, span, b');
+                if (valNode && (valNode.textContent.includes('$') || valNode.textContent.includes('0.00'))) {
+                    valNode.innerText = valueText;
+                }
+            }
+        }
+    });
+}
+
+function findElementContainingText(text) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    let node;
+    while (node = walker.nextNode()) {
+        if (node.nodeValue.includes(text)) {
+            return node.parentElement;
+        }
+    }
+    return null;
+}
+
+// ربط تغيير تاريخ الفلترة في تبويب الصندوق بتحديث الحسابات
+document.addEventListener("DOMContentLoaded", () => {
+    const cashDateFilter = document.getElementById('cashDateFilter');
+    if (cashDateFilter) {
+        cashDateFilter.addEventListener('change', calculateCashflow);
     }
 });
 
-// ----------------- الفقرة 3: كشف الحساب والديون -----------------
-function loadDebtsTable() {
-    const invoices = getInvoices();
-    const debtsMap = {};
-
-    invoices.forEach(inv => {
-        if (inv.paymentStatus === 'دين') {
-            const name = inv.customerName;
-            const amt = parseFloat(inv.grandTotal) || 0;
-            debtsMap[name] = (debtsMap[name] || 0) + amt;
-        }
-    });
-
-    window.currentDebtsMap = debtsMap;
-    renderDebtsUI(debtsMap);
-}
-
-function renderDebtsUI(debtsMap) {
-    const box = document.getElementById('debtsListTable');
-    if (!box) return;
-    const customers = Object.keys(debtsMap);
-
-    if (customers.length === 0) {
-        box.innerHTML = '<p style="color:green; font-weight:bold;">لا توجد ديون مسجلة على أي زبون حالياً.</p>';
-        return;
-    }
-
-    let html = `<table class="items-table">
-        <thead>
-            <tr>
-                <th>اسم الزبون</th>
-                <th>إجمالي المبلغ المستحق (دين)</th>
-                <th>إجراءات الحساب</th>
-            </tr>
-        </thead>
-        <tbody>`;
-
-    customers.forEach(cust => {
-        if (debtsMap[cust] > 0) {
-            html += `<tr>
-                <td><b>${cust}</b></td>
-                <td style="color:red; font-weight:bold; font-size:16px;">${debtsMap[cust].toFixed(2)} $</td>
-                <td>
-                    <button class="btn-edit" onclick="payDebt('${cust}')">تسديد جزء/كامل الدين</button>
-                    <button class="btn-delete" onclick="clearDebt('${cust}')">حذف الدين بالكامل</button>
-                </td>
-            </tr>`;
-        }
-    });
-
-    html += `</tbody></table>`;
-    box.innerHTML = html;
-}
-
-window.filterDebts = function() {
-    const searchInput = document.getElementById('searchDebtCustomer');
-    if (!searchInput) return;
-    const q = searchInput.value.toLowerCase();
-    const filteredMap = {};
-    for (let c in window.currentDebtsMap) {
-        if (c.toLowerCase().includes(q)) filteredMap[c] = window.currentDebtsMap[c];
-    }
-    renderDebtsUI(filteredMap);
-};
-
-window.payDebt = function(cust) {
-    const payAmt = parseFloat(prompt(`أدخل المبلغ المسدد من الزبون (${cust}):`, "0"));
-    if (payAmt && payAmt > 0) {
-        const repayments = JSON.parse(localStorage.getItem('crusher_repayments') || '[]');
-        repayments.push({
-            customer: cust,
-            amount: payAmt,
-            date: new Date().toLocaleDateString('ar-SY'),
-            isoDate: new Date().toISOString().split('T')[0]
+// ----------------- جلب الأرشيف والبيانات من السحابة (الدالة الموحدة) -----------------
+function loadInvoices() {
+    const archiveContainer = document.getElementById('fullArchiveList');
+    
+    invoicesCollection.get().then((querySnapshot) => {
+        let invoicesList = [];
+        querySnapshot.forEach((doc) => {
+            invoicesList.push({ firebaseId: doc.id, ...doc.data() });
         });
-        localStorage.setItem('crusher_repayments', JSON.stringify(repayments));
-        alert("تم تسديد المبلغ وتسجيله في حركة الصندوق اليومية!");
-        loadDebtsTable();
-    }
-};
 
-window.clearDebt = function(cust) {
-    if (confirm(`هل أنت تأكد من تسوية وحذف كافة الديون المترتبة على الزبون (${cust})؟`)) {
-        let invoices = getInvoices();
-        invoices.forEach(inv => {
-            if (inv.customerName === cust && inv.paymentStatus === 'دين') {
-                inv.paymentStatus = 'مسدد بالكامل';
-            }
-        });
-        saveInvoices(invoices);
-        loadDebtsTable();
-    }
-};
+        // تحديث حركة الصندوق اليومية فور جلب وتحديث الفواتير
+        calculateCashflow();
 
-// ----------------- الفقرة 4: حركة الصندوق حسب التاريخ -----------------
-window.calculateCashflow = function() {
-    const dateInput = document.getElementById('cashDateFilter');
-    if (!dateInput || !dateInput.value) return;
-    const dateVal = dateInput.value;
+        // 1. عرض الأرشيف
+        if (archiveContainer) {
+            if (invoicesList.length === 0) {
+                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
+            } else {
+                let tableHTML = `
+                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
+                        <thead>
+                            <tr style="background:#f2f2f2;">
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">رقم الدور</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المقلع</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">التاريخ</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الزبون</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المواد والكميات</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">الإجمالي ($)</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
 
-    const invoices = getInvoices();
-    const expenses = JSON.parse(localStorage.getItem('crusher_expenses') || '[]');
-    const repayments = JSON.parse(localStorage.getItem('crusher_repayments') || '[]');
+                invoicesList.slice().reverse().forEach((inv) => {
+                    const amount = Number(inv.grandTotal || 0);
+                    let itemsSummary = (inv.items && Array.isArray(inv.items)) ? inv.items.map(i => `${i.name}: ${i.qty}م3 × ${i.price}$`).join(' | ') : '';
+                    
+                    tableHTML += `
+                        <tr>
+                            <td style="padding:10px; border:1px solid #ddd;"><span style="background:#2c3e50; color:white; padding:2px 6px; border-radius:3px;">A-${inv.turnNumber || inv.queueNumber || 1}</span></td>
+                            <td style="padding:10px; border:1px solid #ddd; color:#2980b9;"><b>${inv.quarryName || '---'}</b></td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.date || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;"><b>${inv.customerName || '---'}</b></td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;">${itemsSummary}</td>
+                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
+                            <td style="padding:10px; border:1px solid #ddd; color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+                                <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                            </td>
+                        </tr>
+                    `;
+                });
 
-    let cashSales = 0, newDebts = 0, totalExp = 0, debtRepaid = 0;
-
-    invoices.forEach(inv => {
-        if (inv.isoDate === dateVal) {
-            const tot = parseFloat(inv.grandTotal) || 0;
-            if (inv.paymentStatus === 'نقداً') cashSales += tot;
-            else if (inv.paymentStatus === 'دين') newDebts += tot;
+                tableHTML += `</tbody></table>`;
+                archiveContainer.innerHTML = tableHTML;
         }
-    });
+    }
 
-    expenses.forEach(e => {
-        if (e.isoDate === dateVal) totalExp += (parseFloat(e.amount) || 0);
-    });
-
-    repayments.forEach(r => {
-        if (r.isoDate === dateVal) debtRepaid += (parseFloat(r.amount) || 0);
-    });
-
-    if(document.getElementById('cashSalesVal')) document.getElementById('cashSalesVal').innerText = cashSales.toFixed(2) + ' $';
-    if(document.getElementById('cashRepaidVal')) document.getElementById('cashRepaidVal').innerText = debtRepaid.toFixed(2) + ' $';
-    if(document.getElementById('cashExpensesVal')) document.getElementById('cashExpensesVal').innerText = totalExp.toFixed(2) + ' $';
-    if(document.getElementById('cashNewDebtsVal')) document.getElementById('cashNewDebtsVal').innerText = newDebts.toFixed(2) + ' $';
-
-    const netCash = (cashSales + debtRepaid) - totalExp;
-    if(document.getElementById('finalCashBalance')) document.getElementById('finalCashBalance').innerText = netCash.toFixed(2) + ' $';
-};
-
-// حفظ المصاريف
-const btnSaveExpense = document.getElementById('btnSaveExpense');
-if (btnSaveExpense) {
-    btnSaveExpense.addEventListener('click', function() {
-        const title = document.getElementById('expenseTitle').value.trim();
-        const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
-
-        if (!title || amount <= 0) {
-            alert("يرجى إدخال بيان المصروف والمبلغ بدقة!");
-            return;
-        }
-
-        const expenses = JSON.parse(localStorage.getItem('crusher_expenses') || '[]');
-        expenses.push({
-            title, amount,
-            date: new Date().toLocaleDateString('ar-SY'),
-            isoDate: new Date().toISOString().split('T')[0]
-        });
-        localStorage.setItem('crusher_expenses', JSON.stringify(expenses));
-
-        alert("تم حفظ المصروف بنجاح!");
-        document.getElementById('expenseTitle').value = '';
-        document.getElementById('expenseAmount').value = '';
-    });
-}
-
-// ----------------- الفقرة 7: إحصاء المواد المباعة التراكمي -----------------
-function loadMaterialStats() {
-    const invoices = getInvoices();
-    const stats = {};
-
-    invoices.forEach(inv => {
-        if(inv.items && Array.isArray(inv.items)) {
-            inv.items.forEach(item => {
-                if (!stats[item.name]) stats[item.name] = { qty: 0, total: 0 };
-                stats[item.name].qty += parseFloat(item.qty) || 0;
-                stats[item.name].total += parseFloat(item.total) || 0;
+        // 2. تحديث جدول إحصاء المواد المباعة
+        const materialsBody = document.getElementById('materialsStatsBody');
+        if (materialsBody) {
+            let materialsMap = {};
+            invoicesList.forEach(inv => {
+                if (inv.items && Array.isArray(inv.items)) {
+                    inv.items.forEach(item => {
+                        let name = item.name || 'مادة عامة';
+                        let qty = Number(item.qty || 0);
+                        let total = Number(item.total || 0);
+                        if (!materialsMap[name]) materialsMap[name] = { qty: 0, total: 0 };
+                        materialsMap[name].qty += qty;
+                       materialsMap[name].total += total;
+                    });
+                }
             });
-        }
-    });
 
-    const tbody = document.getElementById('materialsStatsBody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+            let matHtml = '';
+            for (let mat in materialsMap) {
+                matHtml += `
+                    <tr>
+                        <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
+                        <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${materialsMap[mat].qty.toFixed(2)} م3</b></td>
+                        <td style="padding:8px; border:1px solid #ddd;"><b>${materialsMap[mat].total.toFixed(2)} $</b></td>
+                    </tr>
+                `;
+            }
+            if (matHtml === '') {
+                matHtml = '<tr><td colspan="3" style="text-align:center; padding:10px; color:#666;">لا توجد مواد مسجلة حتى الآن</td></tr>';
+            }
+            materialsBody.innerHTML = matHtml;
+      }
 
-    const keys = Object.keys(stats);
-    if (keys.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3">لا توجد إحصائيات مواد مباعة حتى الآن.</td></tr>';
-        return;
-    }
-
-    keys.forEach(k => {
-        tbody.innerHTML += `
-            <tr>
-                <td><b>${k}</b></td>
-                <td><b style="color:#2980b9;">${stats[k].qty.toFixed(2)} م3</b></td>
-                <td><b>${stats[k].total.toFixed(2)} $</b></td>
-            </tr>
-        `;
+    }).catch((error) => {
+        console.error("خطأ في جلب البيانات من السحابة: ", error);
     });
 }
 
-// ----------------- الأرشيف الكامل -----------------
-function loadFullArchive() {
-    const invoices = getInvoices();
-    const archiveBox = document.getElementById('fullArchiveList');
-    if (!archiveBox) return;
-
-    if (invoices.length === 0) {
-        archiveBox.innerHTML = '<p style="color:red; font-weight:bold;">لا توجد أي فواتير مسجلة في الأرشيف حالياً.</p>';
-        return;
-    }
-
-    let html = `<table class="items-table">
-        <thead>
-            <tr>
-                <th>رقم الدور</th>
-                <th>المقلع</th>
-                <th>التاريخ</th>
-                <th>اسم الزبون</th>
-                <th>السائق</th>
-                <th>المواد والكميات</th>
-                <th>الإجمالي ($)</th>
-                <th>حالة الدفع</th>
-                <th>إجراءات</th>
-            </tr>
-        </thead>
-        <tbody>`;
-
-    invoices.slice().reverse().forEach(inv => {
-        let itemsSummary = (inv.items && Array.isArray(inv.items)) ? inv.items.map(i => `${i.name}: ${i.qty}م3 × ${i.price}$`).join(' | ') : '';
-        html += `<tr>
-            <td><span style="background:#2c3e50; color:white; padding:2px 6px; border-radius:3px;">A-${inv.turnNumber || inv.queueNumber || 1}</span></td>
-            <td><b style="color:#2980b9;">${inv.quarryName}</b></td>
-            <td>${inv.date}</td>
-            <td><b>${inv.customerName}</b></td>
-            <td>${inv.carNumber || '---'}</td>
-            <td>${itemsSummary}</td>
-            <td><b>${inv.grandTotal}</b></td>
-            <td style="color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus}</td>
-            <td><button class="btn-delete" onclick="deleteInvoice(${inv.id})">حذف</button></td>
-        </tr>`;
-    });
-
-    html += `</tbody></table>`;
-    archiveBox.innerHTML = html;
-}
-
-window.deleteInvoice = function(id) {
-    if (confirm("هل أنت تأكد من حذف هذه الفاتورة من الأرشيف؟")) {
-        let invoices = getInvoices().filter(i => i.id !== id);
-        saveInvoices(invoices);
-        loadFullArchive();
+// دالة حذف الفاتورة نهائياً من سحابة Firebase
+window.deleteInvoice = function(firebaseId) {
+    if (!firebaseId) return;
+    
+    if (confirm("هل أنت متأكد من حذف هذه الفاتورة نهائياً من السحابة؟")) {
+        db.collection("invoices").doc(firebaseId).delete().then(() => {
+            alert("تم الحذف بنجاح!");
+            loadInvoices();
+        }).catch((error) => {
+            console.error("خطأ في الحذف: ", error);
+        });
     }
 };
 
@@ -580,121 +532,9 @@ function resetForm() {
     document.getElementById('grandTotal').innerText = '0.00 $';
     attachEventsToRows();
 }
-// تفعيل الأحداث على الحقول عند تحميل الصفحة
-document.addEventListener("DOMContentLoaded", () => {
-    attachEventsToRows();
-});
+
 // التشغيل التلقائي عند تحميل الصفحة
 document.addEventListener("DOMContentLoaded", () => {
+    attachEventsToRows();
     loadInvoices();
 });
-
-// الدالة الموحدة الوحيدة لجلب الأرشيف، تفعيل زر الحذف، وتحديث الصندوق والمواد
-function loadInvoices() {
-    const archiveContainer = document.getElementById('fullArchiveList');
-    
-    firebase.firestore().collection("invoices").get().then((querySnapshot) => {
-        let invoicesList = [];
-        querySnapshot.forEach((doc) => {
-            invoicesList.push({ firebaseId: doc.id, ...doc.data() });
-        });
-
-        // 1. عرض الأرشيف وزر الحذف
-        if (archiveContainer) {
-            if (invoicesList.length === 0) {
-                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
-            } else {
-                let tableHTML = `
-                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
-                        <thead>
-                            <tr style="background:#f2f2f2;">
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                invoicesList.forEach((inv) => {
-                    const amount = Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
-                    tableHTML += `
-                        <tr>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
-                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
-                                <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                tableHTML += `</tbody></table>`;
-                archiveContainer.innerHTML = tableHTML;
-            }
-        }
-
-        // 2. تحديث حركة الصندوق اليومية تلقائياً
-        let totalSales = 0;
-        invoicesList.forEach(inv => {
-            totalSales += Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
-        });
-
-        const boxes = document.querySelectorAll('div, span');
-        boxes.forEach(box => {
-            if (box.textContent && box.textContent.includes('مبيعات النقد اليوم')) {
-                let parent = box.closest('div');
-                if (parent) {
-                    let priceNum = parent.querySelector('div, span');
-                    if (priceNum) priceNum.innerText = '$' + totalSales.toFixed(2);
-                }
-            }
-        });
-
-        // 3. تحديث جدول إحصاء المواد المباعة
-        const materialsBody = document.getElementById('materialsStatsBody');
-        if (materialsBody) {
-            let materialsMap = {};
-            invoicesList.forEach(inv => {
-                if (inv.items && Array.isArray(inv.items)) {
-                    inv.items.forEach(item => {
-                        let name = item.name || item.material || 'مادة عامة';
-                        let qty = Number(item.qty || item.quantity || 0);
-                        if (!materialsMap[name]) materialsMap[name] = 0;
-                        materialsMap[name] += qty;
-                    });
-                }
-            });
-
-            let matHtml = '';
-            for (let mat in materialsMap) {
-                matHtml += `<tr><td style="padding:8px; border:1px solid #ddd;">${mat}</td><td style="padding:8px; border:1px solid #ddd;">${materialsMap[mat]} م3</td></tr>`;
-            }
-            if (matHtml === '') {
-                matHtml = '<tr><td colspan="2" style="text-align:center; padding:10px; color:#666;">لا توجد مواد مسجلة حتى الآن</td></tr>';
-            }
-            materialsBody.innerHTML = matHtml;
-        }
-
-    }).catch((error) => {
-        console.error("خطأ في جلب البيانات: ", error);
-    });
-}
-
-// دالة حذف الفاتورة نهائياً من السحاب
-window.deleteInvoice = function(firebaseId) {
-    if (!firebaseId) return;
-    
-    if (confirm("هل أنت متأكد من حذف هذه الفاتورة نهائياً؟")) {
-        firebase.firestore().collection("invoices").doc(firebaseId).delete().then(() => {
-            alert("تم الحذف بنجاح!");
-            loadInvoices();
-        }).catch((error) => {
-            console.error("خطأ في الحذف: ", error);
-        });
-    }
-};
