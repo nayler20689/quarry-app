@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم المشرف العام - إدارة المقالع</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+        .chat-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.3); width: 400px; max-width: 90%; z-index: 1000; }
+        .chat-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+        
+        /* تنسيق جدول المقالع */
+        .quarries-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-top: 15px;
+        }
+        .quarries-table th, .quarries-table td {
+            padding: 12px 15px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 14px;
+        }
+        .quarries-table th {
+            background: #1e3a8a;
+            color: white;
+        }
+        .quarries-table tr:hover {
+            background: #f8fafc;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" style="max-width: 1200px;">
+        <header>
+            <img src="assets/logo.png" alt="شعار الإدارة" class="logo">
+            <div>
+                <h1>لوحة تحكم المشرف العام (Master Dashboard)</h1>
+                <p class="currency-tag">متابعة تفصيلية للمقالع، مبيعات النقد والدين، والمصاريف ($)</p>
+            </div>
+        </header>
+
+       <div class="dashboard-grid">
+    <div class="stat-card">
+        <h4>إجمالي مبيعات المقالع ($)</h4>
+        <div class="number" id="totalSalesVal">0.00 $</div>
+    </div>
+    <div class="stat-card">
+        <h4>إجمالي الديون القائمة ($)</h4>
+        <div class="number" style="color: #c0392b;" id="totalDebtsVal">0.00 $</div>
+    </div>
+    <div class="stat-card">
+        <h4>صافي الأرباح ($)</h4>
+        <div class="number" style="color: #27ae60;" id="netProfitVal">0.00 $</div>
+    </div>
+</div>
+        <!-- جدول المقالع النشطة تفصيلياً مع زر الأرشيف -->
+        <div style="margin-top: 30px;">
+            <h2 style="font-size: 18px; color: #2c3e50; margin-bottom: 10px;">جدول تفاصيل وحالة المقالع النشطة</h2>
+            <table class="quarries-table">
+                <thead>
+                    <tr>
+                        <th>اسم المقلع</th>
+                        <th>البيع نقداً ($)</th>
+                        <th>البيع بالدين ($)</th>
+                        <th>المصاريف ($)</th>
+                        <th>إجمالي الحركة ($)</th>
+                        <th>إجراءات / الأرشيف</th>
+                    </tr>
+                </thead>
+                <tbody id="quarriesTableBody">
+                    <!-- تعبئة الجدول تلقائياً -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- الرسم البياني الدائري التفاعلي لنسب المبيعات -->
+        <div class="charts-container" style="margin-top: 30px;">
+            <div class="chart-box" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+                <h3 style="text-align: center; margin-bottom: 15px;">توزيع نسبة مبيعات المقالع الحقيقية (تفاعلي تلقائي)</h3>
+                <div style="max-width: 350px; margin: 0 auto;">
+                    <canvas id="quarryPieChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- سجل الفواتير والمراسلات -->
+        <div class="tab-content active" style="display: block; margin-top: 30px;">
+            <h3>سجل الفواتير والمراسلات المباشرة</h3>
+            <table class="items-table" style="margin-top: 10px;">
+                <thead>
+                    <tr>
+                        <th>المقلع</th>
+                        <th>رقم الدور</th>
+                        <th>التاريخ</th>
+                        <th>الزبون</th>
+                        <th>السائق</th>
+                        <th>الإجمالي ($)</th>
+                        <th>حالة الدفع</th>
+                        <th>مراسلة</th>
+                    </tr>
+                </thead>
+                <tbody id="masterTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- نافذة منبثقة لعرض أرشيف المقلع المحدد -->
+    <div class="chat-overlay" id="archiveOverlay" onclick="closeArchiveModal()"></div>
+    <div class="chat-modal" id="archiveModal" style="width: 600px;">
+        <h3 id="archiveModalTitle" style="color: #1e3a8a; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px;">أرشيف المقلع</h3>
+        <div id="archiveModalContent" style="max-height: 350px; overflow-y: auto;"></div>
+        <button onclick="closeArchiveModal()" style="margin-top: 15px; width: 100%; padding: 8px; background: #718096; color: white; border: none; border-radius: 4px; cursor: pointer;">إغلاق</button>
+    </div>
+
+    <!-- نافذة الدردشة المنبثقة للمشرف -->
+    <div class="chat-overlay" id="chatOverlay" onclick="closeChat()"></div>
+    <div class="chat-modal" id="chatModal">
+        <h4 id="chatTargetTitle">مراسلة مقلع</h4>
+        <div id="modalChatMsgs" class="chat-messages" style="max-height: 200px; overflow-y:auto; margin:10px 0; border:1px solid #eee; padding:8px;"></div>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="modalMsgInput" placeholder="اكتب رسالة للمقلع..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+            <button onclick="sendMasterMessage()" style="padding:8px 15px; background:#27ae60; color:white; border:none; border-radius:4px; cursor:pointer;">إرسال</button>
+        </div>
+        <button onclick="closeChat()" style="margin-top:10px; width:100%; padding:6px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;">إغلاق</button>
+    </div>
+
+    <script>
+        let currentTargetQuarry = '';
+        let pieChartInstance = null;
+
+        function getMasterInvoices() {
+            return JSON.parse(localStorage.getItem('crusher_invoices') || '[]');
+        }
+
+        function initMasterDashboard() {
+            const invoices = getMasterInvoices();
+            renderTable(invoices);
+            calculateStats(invoices);
+            renderQuarriesTable(invoices);
+            renderChart(invoices);
+        }
+
+        function renderTable(invoices) {
+            const tbody = document.getElementById('masterTableBody');
+            tbody.innerHTML = '';
+
+            if (invoices.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:15px;">لا توجد عمليات مسجلة حتى الآن.</td></tr>';
+                return;
+            }
+
+            invoices.slice().reverse().forEach(row => {
+                const qName = row.quarryName || 'مقلع غير مسمى';
+                tbody.innerHTML += `
+                    <tr>
+                        <td><b style="color:#2980b9;">${qName}</b></td>
+                        <td><b>#${row.queueNumber || 1}</b></td>
+                        <td>${row.date}</td>
+                        <td><b>${row.customerName}</b></td>
+                        <td>${row.carNumber}</td>
+                        <td><b>${row.grandTotal}</b></td>
+                        <td style="color:${row.paymentStatus.includes('دين') ? 'red' : 'green'}; font-weight:bold;">${row.paymentStatus}</td>
+                        <td>
+                            <button style="background:#8e44ad; color:white; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;" onclick="openChat('${qName}')">💬 مراسلة</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function calculateStats(invoices) {
+            let totalSales = 0, totalDebts = 0;
+            invoices.forEach(r => {
+                const val = parseFloat(r.grandTotal.replace('$', '')) || 0;
+                totalSales += val;
+                if (r.paymentStatus && r.paymentStatus.includes('دين')) totalDebts += val;
+            });
+            document.getElementById('totalSalesVal').innerText = totalSales.toFixed(2) + ' $';
+            document.getElementById('totalDebtsVal').innerText = totalDebts.toFixed(2) + ' $';
+            document.getElementById('netProfitVal').innerText = (totalSales - totalDebts).toFixed(2) + ' $';
+        }
+
+        // عرض جدول المقالع التفاعلي مع زر الدخول للأرشيف
+        function renderQuarriesTable(invoices) {
+            const tbody = document.getElementById('quarriesTableBody');
+            tbody.innerHTML = '';
+
+            const quarriesData = {};
+            invoices.forEach(r => {
+                const qName = r.quarryName || 'مقلع رئيسي';
+                if (!quarriesData[qName]) {
+                    quarriesData[qName] = { cashSales: 0, debtSales: 0, expenses: 0 };
+                }
+
+                const val = parseFloat(r.grandTotal.replace('$', '')) || 0;
+                if (r.paymentStatus && r.paymentStatus.includes('دين')) {
+                    quarriesData[qName].debtSales += val;
+                } else {
+                    quarriesData[qName].cashSales += val;
+                }
+            });
+
+            const allKeys = Object.keys(quarriesData);
+
+            if (allKeys.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-
