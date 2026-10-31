@@ -584,13 +584,12 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
 });
-// دالة لجلب وعرض الفواتير في قسم الأرشيف الكامل
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
     if (!archiveContainer) return;
 
     firebase.firestore().collection("invoices").get().then((querySnapshot) => {
-        archiveContainer.innerHTML = ""; // تفريغ القائمة قبل العرض
+        archiveContainer.innerHTML = ""; 
         
         if (querySnapshot.empty) {
             archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
@@ -612,12 +611,15 @@ function loadInvoices() {
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
+            // البحث عن المجموع بأكثر من مسمى محتمل لضمان جلبه بشكل صحيح
+            const amount = inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0;
+            
             tableHTML += `
                 <tr>
                     <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
                     <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
                     <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
-                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${inv.totalAmount || 0}</td>
+                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount}</td>
                 </tr>
             `;
         });
@@ -630,11 +632,8 @@ function loadInvoices() {
     });
 }
 
-// تشغيل الدالة عند تحميل الصفحة وأيضاً ربطها بزر الأرشيف لضمان ظهورها فور النقر عليه
 window.addEventListener('DOMContentLoaded', () => {
     loadInvoices();
-    
-    // البحث عن زر الأرشيف الكامل وتحديث البيانات فور الضغط عليه
     const archiveButtons = document.querySelectorAll('button, .tab-btn');
     archiveButtons.forEach(btn => {
         if (btn.textContent.includes('الأرشيف الكامل')) {
