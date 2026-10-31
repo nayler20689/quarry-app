@@ -1,29 +1,30 @@
 /* ==========================================================================
-   1. التنسيقات العامة للنظام والواجهات الأساسية
+   1. التنسيقات العامة للنظام والواجهات الأساسية (بستايل الإكسل الاحترافي)
    ========================================================================== */
 * { 
     box-sizing: border-box; 
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
 }
 body { 
-    background-color: #f4f6f9; 
+    background-color: #f1f3f5; 
     margin: 0; 
     padding: 20px; 
     direction: rtl; 
 }
 .container { 
-    background: white; 
+    background: #ffffff; 
     padding: 25px; 
-    border-radius: 10px; 
-    box-shadow: 0 4px 15px rgba(0,0,0,0.08); 
+    border-radius: 8px; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
     max-width: 1000px; 
     margin: 0 auto; 
+    border: 1px solid #dcdcdc;
 }
 header { 
     display: flex; 
     align-items: center; 
     gap: 20px; 
-    border-bottom: 2px solid #eee; 
+    border-bottom: 2px solid #8B5A2B; /* لون بني ترابي مميز */
     padding-bottom: 15px; 
     margin-bottom: 20px; 
 }
@@ -34,22 +35,25 @@ header {
 .tabs-header { 
     display: flex; 
     flex-wrap: wrap; 
-    gap: 8px; 
-    border-bottom: 2px solid #3498db; 
+    gap: 4px; 
+    border-bottom: 2px solid #8B5A2B; 
     margin-bottom: 20px; 
 }
 .tab-btn { 
-    background: #eef2f5; 
-    border: none; 
+    background: #e8ecef; 
+    border: 1px solid #ccc;
+    border-bottom: none;
     padding: 10px 15px; 
     cursor: pointer; 
     border-radius: 6px 6px 0 0; 
     font-weight: bold; 
-    color: #555; 
+    color: #444; 
+    transition: all 0.2s ease;
 }
 .tab-btn.active { 
-    background: #3498db; 
+    background: #8B5A2B; /* لون الإكسل البني/الكراميل */
     color: white; 
+    border-color: #6e4722;
 }
 .tab-content { 
     display: none; 
@@ -72,50 +76,54 @@ header {
 }
 .form-group input, .form-group select { 
     padding: 8px 12px; 
-    border: 1px solid #ccc; 
-    border-radius: 5px; 
+    border: 1px solid #b0b0b0; 
+    border-radius: 4px; 
+    background: #fff;
 }
 .items-table { 
     width: 100%; 
     border-collapse: collapse; 
     margin-top: 15px; 
+    border: 1px solid #b0b0b0;
 }
 .items-table th, .items-table td { 
-    border: 1px solid #ddd; 
+    border: 1px solid #b0b0b0; 
     padding: 10px; 
     text-align: center; 
 }
 .items-table th { 
-    background: #f8f9fa; 
+    background: #8B5A2B; /* رأس الجدول بلون البني الكراميلي المطابق للصورة */
+    color: white;
+    font-weight: bold;
 }
 .items-table select, .items-table input { 
     width: 100%; 
     padding: 6px; 
-    border: 1px solid #ddd; 
+    border: 1px solid #ccc; 
     border-radius: 4px; 
     text-align: center; 
 }
 .btn-add { 
-    background: #2ecc71; 
+    background: #27ae60; 
     color: white; 
     border: none; 
     padding: 8px 15px; 
-    border-radius: 5px; 
+    border-radius: 4px; 
     cursor: pointer; 
     margin-top: 10px; 
     font-weight: bold; 
 }
 .btn-save { 
-    background: #2980b9; 
+    background: #8B5A2B; 
     color: white; 
     border: none; 
     padding: 10px 20px; 
-    border-radius: 5px; 
+    border-radius: 4px; 
     cursor: pointer; 
     font-weight: bold; 
 }
 .btn-edit { 
-    background: #f39c12; 
+    background: #d35400; 
     color: white; 
     border: none; 
     padding: 4px 8px; 
@@ -123,7 +131,7 @@ header {
     cursor: pointer; 
 }
 .btn-delete, .btn-del-row { 
-    background: #e74c3c; 
+    background: #c0392b; 
     color: white; 
     border: none; 
     padding: 4px 8px; 
@@ -131,13 +139,15 @@ header {
     cursor: pointer; 
 }
 .total-box { 
-    font-size: 20px; 
+    font-size: 18px; 
     font-weight: bold; 
     margin: 20px 0; 
     text-align: left; 
-    background: #eaf2f8; 
-    padding: 10px; 
-    border-radius: 5px; 
+    background: #fdf5e6; /* خلفية صفراء/كريستالية هادئة */
+    border: 1px solid #e6d2b5;
+    padding: 12px; 
+    border-radius: 4px; 
+    color: #5c4033;
 }
 
 /* إخفاء قسم الوصل تماماً أثناء تصفح النظام العادي */
@@ -146,24 +156,24 @@ header {
 }
 
 /* ==========================================================================
-   2. التنسيقات الخاصة بجدول الوصل الجديد (شبيه بالإكسل)
+   2. التنسيقات الخاصة بجدول الوصل والإحصاءات (شبيه الإكسل المطلق)
    ========================================================================== */
 .receipt-card {
-    width: 360px; /* العرض المثالي والمطابق للصورة المربعة */
+    width: 360px; 
     margin: 0 auto;
     background: #fff;
     direction: rtl;
 }
 .excel-receipt-table {
     width: 100%;
-    border-collapse: collapse; /* دمج الحدود المزدوجة ليصبح خطاً واحداً */
-    border: 2px solid #000000;
+    border-collapse: collapse; 
+    border: 2px solid #5c4033;
 }
 .excel-receipt-table td {
-    border: 1px solid #000000; /* حدود سوداء مربعة واضحة تماماً مثل الإكسل */
+    border: 1px solid #b0b0b0; 
     padding: 8px 6px;
     font-size: 13px;
-    text-align: center; /* توسيط النصوص في جميع الخانات */
+    text-align: center; 
     color: #000;
     vertical-align: middle;
 }
@@ -171,14 +181,19 @@ header {
     font-weight: bold;
 }
 .excel-receipt-table .main-header {
-    font-size: 16px;
-    padding: 12px 6px 6px 6px;
+    font-size: 15px;
+    background-color: #8B5A2B;
+    color: #fff;
+    padding: 10px;
 }
 .excel-receipt-table .sub-header {
-    font-size: 14px;
+    font-size: 13px;
+    background-color: #d7ccc8;
+    color: #3e2723;
+    font-weight: bold;
 }
 .excel-receipt-table .bg-gray {
-    background-color: #f2f2f2 !important; /* لون خلفية رمادي خفيف للخانات التعريفية */
+    background-color: #f5f2ef !important; /* لون رمادي مائل للدفء متناسق مع الإكسل */
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
 }
@@ -191,28 +206,7 @@ header {
     text-align: center;
 }
 
-/* ==========================================================================
-   3. قواعد التحكم بالطباعة @media print
-   ========================================================================== */
-@media print {
-    body * {
-        visibility: hidden;
-    }
-    .print-only, .print-only * {
-        visibility: visible;
-    }
-    .print-only {
-        display: block !important;
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-    }
-    @page {
-        margin: 0; /* إلغاء هوامش المتصفح الافتراضية لعدم تخريب الأبعاد */
-    }
-}
-/* كلاسات إضافية صارمة للتحكم باتجاه النصوص والوصول لشكل الإكسل المطلق */
+/* كلاسات إضافية لتنسيق الجداول والإحصاءات كالإكسل تماماً */
 .excel-receipt-table .text-right {
     text-align: right !important;
     padding-right: 15px !important;
@@ -222,26 +216,31 @@ header {
     padding-left: 15px !important;
 }
 .excel-receipt-table .style-labels {
-    width: 40% !important; /* ليعطي الخانات شكلاً متناسقاً ومربعاً كالإكسل */
+    width: 40% !important; 
 }
-/* تنسيق صف المربعات أو البطاقات لترتيبها بجانب بعضها */
+
+/* صندوق الإحصاءات والبطاقات */
 .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 20px;
     margin-top: 20px;
 }
+
+/* ==========================================================================
+   3. قواعد التحكم بالطباعة @media print
+   ========================================================================== */
 @media print {
-    /* إخفاء عناصر الموقع العامة وعرض الإيصال فقط */
     body * {
         visibility: hidden;
     }
     
-    #invoicePrintArea, #invoicePrintArea * { /* تأكد أن هذا هو كلاس أو آي دي صندوق الإيصال لديك */
+    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea * { 
         visibility: visible;
     }
     
-    #invoicePrintArea {
+    .print-only, #invoicePrintArea {
+        display: block !important;
         position: absolute;
         left: 0;
         top: 0;
@@ -250,9 +249,8 @@ header {
         padding: 5px;
     }
 
-    /* ضبط مقاس الصفحة للطابعة الحرارية الصغيرة */
     @page {
-        size: 80mm auto; /* عرض الورقة الحرارية الشائع */
-        margin: 0;
+        size: 80mm auto; /* مقاس الطابعة الحرارية */
+        margin: 0; 
     }
 }
