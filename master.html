@@ -153,21 +153,23 @@
         let pieChartInstance = null;
         let globalInvoices = [];
 
-        function initMasterDashboard() {
-            invoicesCollection.get().then((querySnapshot) => {
-                globalInvoices = [];
-                querySnapshot.forEach((doc) => {
-                    globalInvoices.push({ firebaseId: doc.id, ...doc.data() });
-                });
+       function initMasterDashboard() {
+    // الاستماع الفوري واللحظي لأي تغيرات أو فواتير جديدة في سحابة Firebase
+    invoicesCollection.onSnapshot((querySnapshot) => {
+        globalInvoices = [];
+        querySnapshot.forEach((doc) => {
+            globalInvoices.push({ firebaseId: doc.id, ...doc.data() });
+        });
 
-                renderTable(globalInvoices);
-                calculateStats(globalInvoices);
-                renderQuarriesTable(globalInvoices);
-                renderChart(globalInvoices);
-            }).catch((error) => {
-                console.error("خطأ في جلب بيانات المشرف السحابية:", error);
-            });
-        }
+        // تحديث الجداول والإحصائيات والرسوم البيانية تلقائياً فوراً
+        renderTable(globalInvoices);
+        calculateStats(globalInvoices);
+        renderQuarriesTable(globalInvoices);
+        renderChart(globalInvoices);
+    }, (error) => {
+        console.error("خطأ في المزامنة السحابية الفورية:", error);
+    });
+}
 
         function renderTable(invoices) {
             const tbody = document.getElementById('masterTableBody');
