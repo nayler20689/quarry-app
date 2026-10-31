@@ -643,48 +643,112 @@ function loadInvoices() {
     });
 }
 
-// دالة حذف الفاتورة من سحابة فايربيس بشكل نهائي وتحديث الجدول
+// دالة شاملة لجلب الفواتير، تحديث الأرشيف، تفعيل زر الحذف، وحساب الصندوق والمواد بدقة
+function loadInvoices() {
+    const archiveContainer = document.getElementById('fullArchiveList');
+    
+    firebase.firestore().collection("invoices").get().then((querySnapshot) => {
+        let invoicesList = [];
+        querySnapshot.forEach((doc) => {
+            invoicesList.push({ firebaseId: doc.id, ...doc.data() });
+        });
+
+        // 1. عرض الأرشيف مع زر الحذف الفعال
+        if (archiveContainer) {
+            if (invoicesList.length === 0) {
+                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
+            } else {
+                let tableHTML = `
+                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
+                        <thead>
+                            <tr style="background:#f2f2f2;">
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الشركة / الزبون</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المجموع ($)</th>
+                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                invoicesList.forEach((inv) => {
+                    const amount = Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
+                    tableHTML += `
+                        <tr>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
+                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
+                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+                                <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                tableHTML += `</tbody></table>`;
+                archiveContainer.innerHTML = tableHTML;
+            }
+        }
+
+        // 2. تحديث خانات الصندوق المالي اليومي وحساب الرصيد الفعلي
+        updateCashBoxes(invoicesList);
+        
+        // 3. تحديث إحصاء المواد المباعة
+        updateMaterialsReport(invoicesList);
+
+    }).catch((error) => {
+        console.error("خطأ في جلب البيانات: ", error);
+    });
+}
+
+// دالة حذف الفاتورة من سحابة فايربيس بشكل نهائي
 window.deleteInvoice = function(firebaseId) {
-    if (!firebaseId) {
-        alert("خطأ: معرّف الفاتورة غير موجود!");
-        return;
-    }
+    if (!firebaseId) return;
     
     if (confirm("هل أنت متأكد من حذف هذه الفاتورة نهائياً؟")) {
         firebase.firestore().collection("invoices").doc(firebaseId).delete().then(() => {
             alert("تم الحذف بنجاح!");
-            loadInvoices(); // إعادة تحميل القائمة لتختفي الفاتورة فوراً
+            loadInvoices(); // تحديث فوري للبيانات
         }).catch((error) => {
             console.error("خطأ في الحذف: ", error);
-            alert("حدث خطأ أثناء محاولة الحذف.");
         });
     }
 };
 
-// تحديث تقارير حركة الصندوق اليومية
-function updateDailyCashReport(invoices) {
-    let totalCash = 0;
+// حساب وتحديث خانات الصندوق اليومي والرصيد
+function updateCashBoxes(invoices) {
+    let totalSales = 0;
     invoices.forEach(inv => {
-        totalCash += Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
+        totalSales += Number(inv.totalAmount || inv.total || inv.grandTotal || inv.sum || 0);
     });
 
-    // البحث عن بطاقات الصندوق وتحديث قيمتها في الواجهة
-    const cashElements = document.querySelectorAll('div, span');
-    cashElements.forEach(el => {
-        if (el.textContent && el.textContent.includes('مبيعات النقد اليوم')) {
-            let parentBox = el.closest('div');
-            if (parentBox) {
-                let targetNum = parentBox.querySelector('div, span:not(:contains("مبيعات"))');
-                if (targetNum && targetNum !== el) {
-                    targetNum.innerText = '$' + totalCash.toFixed(2);
+    // استهداف بطاقات الصندوق اليومي بناءً على ترتيبها في الواجهة
+    const boxes = document.querySelectorAll('.cash-box-today, div[style*="background"], div');
+    
+    // تحديث صندوق مبيعات النقد اليوم (البطاقة الأولى) وباقي الحسابات
+    boxes.forEach(box => {
+        if (box.textContent && box.textContent.includes('مبيعات النقد اليوم')) {
+            let nums = box.querySelectorAll('div, span');
+            nums.forEach(n => {
+                if (n.textContent.includes('$')) {
+                    n.innerText = '$' + totalSales.toFixed(2);
                 }
+            });
+        }
+        // تحديث الرصيد الصافي الفعلي في نهاية اليوم
+        if (box.textContent && box.textContent.includes('الرصيد الصافي الفعلي')) {
+            let balanceEl = box.querySelector('span, div') || box;
+            if (balanceEl) {
+                balanceEl.innerHTML = `الرصيد الصافي الفعلي بالصندوق في نهاية اليوم: <span style="color:#27ae60;">$${totalSales.toFixed(2)}</span>`;
             }
         }
     });
 }
 
-// تحديث إحصاء المواد المباعة (كميات الحصى والكسارة وغيرها)
-function updateMaterialsStatsReport(invoices) {
+// تحديث جدول إحصاء المواد المباعة
+function updateMaterialsReport(invoices) {
     const materialsBody = document.getElementById('materialsStatsBody');
     if (!materialsBody) return;
 
@@ -710,15 +774,14 @@ function updateMaterialsStatsReport(invoices) {
     materialsBody.innerHTML = html;
 }
 
-// التشغيل التلقائي عند فتح الصفحة وربط الأزرار والتبويبات
+// التشغيل التلقائي عند تحميل الصفحة وعند الضغط على الأزرار
 window.addEventListener('DOMContentLoaded', () => {
     loadInvoices();
 
-    // تحديث البيانات تلقائياً عند النقل بين تبويبات الواجهة
-    const interactiveButtons = document.querySelectorAll('button, .tab-btn');
-    interactiveButtons.forEach(btn => {
+    const buttons = document.querySelectorAll('button, .tab-btn');
+    buttons.forEach(btn => {
         btn.addEventListener('click', () => {
-            setTimeout(loadInvoices, 200);
+            setTimeout(loadInvoices, 150);
         });
     });
 });
