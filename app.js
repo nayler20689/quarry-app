@@ -584,32 +584,46 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
 });
-// دالة لجلب وعرض الفواتير في جداول المحاسب أو المشرف
+// دالة لجلب وعرض الأرشيف في واجهة المحاسب
 function loadInvoices() {
-    // التأكد من أننا في صفحة تحتوي على جدول الأرشيف أو مبيعات اليوم
-    const archiveTable = document.getElementById('archiveTableBody'); // أو اسم جدول الأرشيف لديك
-    if (!archiveTable) return;
+    const archiveContainer = document.getElementById('fullArchiveList');
+    if (!archiveContainer) return;
 
-    // جلب البيانات من سحابة Firebase مرتبة تنازلياً
     firebase.firestore().collection("invoices").get().then((querySnapshot) => {
-        archiveTable.innerHTML = ""; // تفريغ الجدول قبل إعادة التعبئة
+        archiveContainer.innerHTML = ""; // تفريغ القائمة قبل العرض
+        
+        // إنشاء جدول داخل الحاوية لعرض الفواتير بشكل أنيق
+        let tableHTML = `
+            <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background:#f2f2f2;">
+                        <th style="padding:8px; border:1px solid #ddd;">الزكون/الشركة</th>
+                        <th style="padding:8px; border:1px solid #ddd;">السائق</th>
+                        <th style="padding:8px; border:1px solid #ddd;">حالة الدفع</th>
+                        <th style="padding:8px; border:1px solid #ddd;">المجموع ($)</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
-            
-            // إضافة صف جديد لكل فاتورة في الجدول
-            archiveTable.innerHTML += `
+            tableHTML += `
                 <tr>
-                    <td>${inv.customerName || '---'}</td>
-                    <td>${inv.carNumber || '---'}</td>
-                    <td>${inv.paymentStatus || '---'}</td>
-                    <td>$${inv.totalAmount || 0}</td>
+                    <td style="padding:8px; border:1px solid #ddd;">${inv.customerName || '---'}</td>
+                    <td style="padding:8px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
+                    <td style="padding:8px; border:1px solid #ddd;">${inv.paymentStatus || '---'}</td>
+                    <td style="padding:8px; border:1px solid #ddd;">$${inv.totalAmount || 0}</td>
                 </tr>
             `;
         });
+
+        tableHTML += `</tbody></table>`;
+        archiveContainer.innerHTML = tableHTML;
+
     }).catch((error) => {
-        console.error("خطأ في جلب الفواتير: ", error);
+        console.error("خطأ في جلب الأرشيف: ", error);
     });
 }
 
-// استدعاء الدالة تلقائياً بمجرد فتح الصفحة
 window.addEventListener('DOMContentLoaded', loadInvoices);
