@@ -1,11 +1,11 @@
 // تكوين Firebase الخاص بمشروعك
 const firebaseConfig = {
-  apiKey: "AIzaSyBAv3wyk1ONLYNg26ePLv3NaySH53J3jNs",
-  authDomain: "quarry-management-system-6f034.firebaseapp.com",
-  projectId: "quarry-management-system-6f034",
-  storageBucket: "quarry-management-system-6f034.firebasestorage.app",
-  messagingSenderId: "933605044706",
-  appId: "1:933605044706:web:1bb04329cad15d6b77c9bb"
+    apiKey: "AIzaSyBAv3wyk1ONLYNg26ePLv3NaySH53J3jNs",
+    authDomain: "quarry-management-system-6f034.firebaseapp.com",
+    projectId: "quarry-management-system-6f034",
+    storageBucket: "quarry-management-system-6f034.firebasestorage.app",
+    messagingSenderId: "933605044706",
+    appId: "1:933605044706:web:1bb04329cad15d6b77c9bb"
 };
 
 // تهيئة Firebase
@@ -14,16 +14,17 @@ const db = firebase.firestore();
 
 // تفعيل ميزة العمل بدون إنترنت (Offline Persistence)
 db.enablePersistence()
-  .catch((err) => {
-      if (err.code == 'failed-precondition') {
-          console.log('فشل التفعيل: التبويبات متعددة');
-      } else if (err.code == 'unimplemented') {
-          console.log('المتصفح لا يدعم التخزين المؤقت');
-      }
-  });
+    .catch((err) => {
+        if (err.code == 'failed-precondition') {
+            console.log('فشل التفعيل: التبويبات متعددة');
+        } else if (err.code == 'unimplemented') {
+            console.log('المتصفح لا يدعم التخزين المؤقت');
+        }
+    });
 
-// مرجع مجموعة الفواتير
+// مرجع مجموعة الفواتير والدفعات
 const invoicesCollection = db.collection("invoices");
+const repaymentsCollection = db.collection("repayments");
 let currentEditId = null;
 
 // التبديل بين التبويبات
@@ -140,7 +141,7 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
     const quarryName = document.getElementById('quarryName').value.trim() || 'مقلع أبناء عبد الغفور الصياح';
 
     if (!customerName) {
-        alert("يرجى إدخال اسم الزبون أولاً!");
+        alert("يرجى إدخال اسم الشركة أولاً!");
         return;
     }
 
@@ -184,14 +185,13 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
         grandTotal: numericGrandTotal
     };
 
-    // إرسال الفاتورة إلى قاعدة بيانات Firebase السحابية
     invoicesCollection.add(newInvoice)
     .then(() => {
         console.log("تم حفظ الفاتورة في السحاب بنجاح!");
-        loadInvoices(); // تحديث العرض والصندوق فور الحفظ
+        loadInvoices(); 
     })
     .catch((error) => {
-        console.error("خطأ في الاتصال بالباعثة السحابية: ", error);
+        console.error("خطأ في الاتصال بالسحابة: ", error);
         alert("حدث خطأ أثناء الحفظ بالسحابة!");
     });
 
@@ -226,7 +226,7 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
                         <td class="bold text-center">${items[0].qty} متر</td>
                     </tr>
                   `;
-              } else if (items.length === 1) {
+            } else if (items.length === 1) {
                 container.innerHTML = `
                     <tr>
                         <td class="bg-gray bold text-center" style="width: 50%;">البضاعة</td>
@@ -248,7 +248,171 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
     resetForm();
 });
 
-// ----------------- دالة حساب حركة الصندوق اليومية (محدثة حسب واجهتك) -----------------
+// ----------------- معالجة وحفظ دفعات الديون المحصلة -----------------
+document.addEventListener("DOMContentLoaded", () => {
+    const repaidDateEl = document.getElementById('repaidDate');
+    if (repaidDateEl) {
+        repaidDateEl.value = new Date().toLocaleDateString('en-CA');
+    }
+
+    const btnSaveRepayment = document.getElementById('btnSaveRepayment');
+    if (btnSaveRepayment) {
+        btnSaveRepayment.addEventListener('click', function() {
+            const customerName = document.getElementById('repaidCustomerName').value.trim();
+            const amount = parseFloat(document.getElementById('repaidAmount').value) || 0;
+            const dateInput = document.getElementById('repaidDate').value;
+            const todayIso = new Date().toLocaleDateString('en-CA');
+
+            if (!customerName || amount <= 0) {
+                alert("يرجى إدخال اسم الزبون والمبلغ المحصل بشكل صحيح!");
+                return;
+            }
+
+            const repaymentData = {
+                customerName: customerName,
+                amount: amount,
+                date: dateInput || todayIso,
+                timestamp: Date.now()
+            };
+
+            repaymentsCollection.add(repaymentData)
+            .then(() => {
+                alert("تم تسجيل دفعة الدين بنجاح وخصمها من الحساب وتحديث الصندوق!");
+                document.getElementById('repaidCustomerName').value = '';
+                document.getElementById('repaidAmount').value = '';
+                document.getElementById('repaidDate').value = new Date().toLocaleDateString('en-CA');
+                loadDebtsTable();
+                calculateCashflow();
+            })
+            .catch((error) => {
+                console.error("خطأ في حفظ الدفعة: ", error);
+                alert("حدث خطأ أثناء حفظ الدفعة بالسحابة!");
+            });
+        });
+    }
+});
+
+// دالة جلب وعرض ديون الزبائن مع خصم المدفوعات تلقائياً
+function loadDebtsTable() {
+    const debtsContainer = document.getElementById('debtsListTable');
+    const repaidContainer = document.getElementById('repaidDebtsListTable');
+    if (!debtsContainer) return;
+
+    Promise.all([invoicesCollection.get(), repaymentsCollection.get()]).then(([invSnap, repSnap]) => {
+        let customersDebtMap = {};
+        let repaymentsList = [];
+
+        invSnap.forEach(doc => {
+            const inv = doc.data();
+            if (inv.paymentStatus === 'دين' && inv.customerName) {
+                let name = inv.customerName.trim();
+                let amount = Number(inv.grandTotal || 0);
+                customersDebtMap[name] = (customersDebtMap[name] || 0) + amount;
+            }
+        });
+
+        repSnap.forEach(doc => {
+            const rep = doc.data();
+            repaymentsList.push({ id: doc.id, ...rep });
+            let name = (rep.customerName || '').trim();
+            let amount = Number(rep.amount || 0);
+            if (customersDebtMap[name] !== undefined) {
+                customersDebtMap[name] -= amount;
+            } else {
+                customersDebtMap[name] = -amount;
+            }
+        });
+
+        if (repaidContainer) {
+            if (repaymentsList.length === 0) {
+                repaidContainer.innerHTML = "<p style='color:#666; font-size:13px;'>لا توجد دفعات ديون مسجلة حتى الآن.</p>";
+            } else {
+                let repHtml = `
+                    <table class="items-table" style="width:100%; border-collapse: collapse; background:#fff;">
+                        <thead>
+                            <tr style="background:#eaf2f8;">
+                                <th style="padding:8px; border:1px solid #ddd; text-align:right;">اسم الزبون</th>
+                                <th style="padding:8px; border:1px solid #ddd; text-align:right;">المبلغ المحصل ($)</th>
+                                <th style="padding:8px; border:1px solid #ddd; text-align:right;">التاريخ</th>
+                                <th style="padding:8px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                repaymentsList.slice().reverse().forEach(rep => {
+                    repHtml += `
+                        <tr>
+                            <td style="padding:8px; border:1px solid #ddd;"><b>${rep.customerName}</b></td>
+                            <td style="padding:8px; border:1px solid #ddd; color:#27ae60; font-weight:bold;">$${Number(rep.amount).toFixed(2)}</td>
+                            <td style="padding:8px; border:1px solid #ddd;">${rep.date}</td>
+                            <td style="padding:8px; border:1px solid #ddd; text-align:center;">
+                                <button type="button" onclick="deleteRepayment('${rep.id}')" style="background:#e74c3c; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">حذف X</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                repHtml += `</tbody></table>`;
+                repaidContainer.innerHTML = repHtml;
+            }
+        }
+
+        let debtHtml = `
+            <table class="items-table" style="width:100%; border-collapse: collapse; background:#fff;">
+                <thead>
+                    <tr style="background:#f2f2f2;">
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الزبون / الشركة</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">إجمالي الدين المتبقي ($)</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        let hasDebt = false;
+        for (let cust in customersDebtMap) {
+            hasDebt = true;
+            debtHtml += `
+                <tr>
+                    <td style="padding:10px; border:1px solid #ddd;"><b>${cust}</b></td>
+                    <td style="padding:10px; border:1px solid #ddd; color:${customersDebtMap[cust] > 0 ? '#c0392b' : '#27ae60'}; font-weight:bold;">$${customersDebtMap[cust].toFixed(2)}</td>
+                </tr>
+            `;
+        }
+
+        if (!hasDebt) {
+            debtHtml += `<tr><td colspan="2" style="text-align:center; padding:10px; color:#666;">لا توجد ديون مترتبة على الزبائن حالياً</td></tr>`;
+        }
+        debtHtml += `</tbody></table>`;
+        debtsContainer.innerHTML = debtHtml;
+
+    }).catch(err => {
+        console.error("خطأ في جلب بيانات الديون: ", err);
+    });
+}
+
+window.deleteRepayment = function(id) {
+    if (confirm("هل تريد حذف هذه الدفعة المحصلة نهائياً؟")) {
+        repaymentsCollection.doc(id).delete().then(() => {
+            alert("تم الحذف بنجاح!");
+            loadDebtsTable();
+            calculateCashflow();
+        }).catch(err => console.error("خطأ في الحذف: ", err));
+    }
+};
+
+window.filterDebts = function() {
+    let input = document.getElementById('searchDebtCustomer').value.toLowerCase();
+    let rows = document.querySelectorAll('#debtsListTable tbody tr');
+    rows.forEach(row => {
+        let name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
+        if (name.includes(input)) {
+            row.style.display = "";
+        } else {
+            row.style.display = "none";
+        }
+    });
+};
+
+// ----------------- حساب حركة الصندوق اليومية باستخدام الـ IDs مباشرة -----------------
 function calculateCashflow() {
     const dateFilterEl = document.getElementById('cashDateFilter');
     let selectedDateStr = '';
@@ -259,15 +423,14 @@ function calculateCashflow() {
         selectedDateStr = new Date().toLocaleDateString('en-CA');
     }
 
-    invoicesCollection.get().then((querySnapshot) => {
+    Promise.all([invoicesCollection.get(), repaymentsCollection.get()]).then(([querySnapshot, repSnapshot]) => {
         let totalCashSales = 0;
         let totalNewDebts = 0;
-
-        querySnapshot.query && querySnapshot.forEach ? querySnapshot.forEach(doc => {}) : null;
+        let totalRepaidDebts = 0;
+        let totalExpenses = 0;
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
-            // مطابقة التاريخ مع isoDate أو تاريخ الفاتورة المحلي
             if (inv.isoDate === selectedDateStr || inv.date === selectedDateStr) {
                 const amount = Number(inv.grandTotal || 0);
                 if (inv.paymentStatus === 'دين') {
@@ -278,31 +441,29 @@ function calculateCashflow() {
             }
         });
 
-        // تحديث الحقول الأربعة الموجودة في واجهة "حركة الصندوق اليومية والمالية"
-        // البحث عن العناصر بناءً على الترتيب أو النصوص المجاورة في الواجهة لديك:
-        // 1. مبيعات النقد اليوم ($)
-        const cashSalesBoxes = document.querySelectorAll('.tab-content #tabCashflow .box, .tab-content #tabCashflow div, div');
-        
-        // طريقة آمنة لتحديث الحقول عبر ضبط الـ IDs أو تحديثها بالترتيب بناءً على واجهتك
-        // سنبحث عن العنصر الذي يحمل القيمة الافتراضية $0.00 تحت العناوين المطابقة
-        const allCardDivs = document.querySelectorAll('.tab-content div, .tab-content span, div');
-        
-        // تحديث المربعات عبر البحث عن الحقول المخصصة (يمكنك إضافة IDs في ملف الـ HTML إذا لم تكن موجودة، أو استخدام الكود أدناه مباشرة)
-        // تحديث مبيعات النقد (المربع الأول)
-        const box1 = document.getElementById('cashSalesValue') || document.querySelector('#tabCashflow div:nth-child(1) .value, #tabCashflow');
-        
-        // تحديث القيم مباشرة عبر دالة تعبئة ذكية بالاعتماد على النصوص الظاهرة في الصورة:
-        updateCardValueByText("1. مبيعات النقد اليوم ($)", `$${totalCashSales.toFixed(2)}`);
-        updateCardValueByText("4. ديون جديدة مسجلة اليوم ($)", `$${totalNewDebts.toFixed(2)}`);
-
-        // تحديث الرصيد الصافي الفعلي بالصندوق في نهاية اليوم
-        const netBalanceEl = document.getElementById('netBalanceValue') || findElementContainingText("الرصيد الصافي الفعلي بالصندوق في نهاية اليوم");
-        if (netBalanceEl) {
-            // البحث عن النص وتغيير القيمة التي تحته مباشرة
-            let targetNode = netBalanceEl.nextElementSibling || netBalanceEl.parentElement.querySelector('span, b, div');
-            if (targetNode) {
-                targetNode.innerText = `$${totalCashSales.toFixed(2)}`;
+        repSnapshot.forEach((doc) => {
+            const rep = doc.data();
+            if (rep.date === selectedDateStr) {
+                totalRepaidDebts += Number(rep.amount || 0);
             }
+        });
+
+        // تحديث البطاقات الأربع مباشرة عبر IDs الخاصة بها في الـ HTML
+        const cashSalesValEl = document.getElementById('cashSalesVal');
+        const cashRepaidValEl = document.getElementById('cashRepaidVal');
+        const cashExpensesValEl = document.getElementById('cashExpensesVal');
+        const cashNewDebtsValEl = document.getElementById('cashNewDebtsVal');
+        const finalCashBalanceEl = document.getElementById('finalCashBalance');
+
+        if (cashSalesValEl) cashSalesValEl.innerText = `$${totalCashSales.toFixed(2)}`;
+        if (cashRepaidValEl) cashRepaidValEl.innerText = `$${totalRepaidDebts.toFixed(2)}`;
+        if (cashExpensesValEl) cashExpensesValEl.innerText = `$${totalExpenses.toFixed(2)}`;
+        if (cashNewDebtsValEl) cashNewDebtsValEl.innerText = `$${totalNewDebts.toFixed(2)}`;
+
+        // الرصيد الصافي الفعلي بالصندوق في نهاية اليوم = مبيعات النقد + الدفعات المحصلة من الديون - المصاريف
+        let netTotal = totalCashSales + totalRepaidDebts - totalExpenses;
+        if (finalCashBalanceEl) {
+            finalCashBalanceEl.innerText = `$${netTotal.toFixed(2)}`;
         }
 
     }).catch((error) => {
@@ -310,36 +471,6 @@ function calculateCashflow() {
     });
 }
 
-// دوائر مساعد للبحث عن العناصر في الواجهة وتحديثها ديناميكياً بدون تعديل HTML
-function updateCardValueByText(headerText, valueText) {
-    const elements = document.querySelectorAll('*');
-    elements.forEach(el => {
-        if (el.childNodes.length === 1 && el.textContent.trim() === headerText) {
-            // العثور على العنصر الأب أو الحقل التالي الذي يحمل السعر ($0.00)
-            let parentBox = el.closest('div');
-            if (parentBox) {
-                // البحث عن عنصر يحمل علامة الدولار أو رقم داخل الصندوق
-                let valNode = parentBox.querySelector('div:not(:first-child), h3, span, b');
-                if (valNode && (valNode.textContent.includes('$') || valNode.textContent.includes('0.00'))) {
-                    valNode.innerText = valueText;
-                }
-            }
-        }
-    });
-}
-
-function findElementContainingText(text) {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-    let node;
-    while (node = walker.nextNode()) {
-        if (node.nodeValue.includes(text)) {
-            return node.parentElement;
-        }
-    }
-    return null;
-}
-
-// ربط تغيير تاريخ الفلترة في تبويب الصندوق بتحديث الحسابات
 document.addEventListener("DOMContentLoaded", () => {
     const cashDateFilter = document.getElementById('cashDateFilter');
     if (cashDateFilter) {
@@ -347,7 +478,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// ----------------- جلب الأرشيف والبيانات من السحابة (الدالة الموحدة) -----------------
+// جلب الأرشيف والبيانات من السحابة
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
     
@@ -357,10 +488,8 @@ function loadInvoices() {
             invoicesList.push({ firebaseId: doc.id, ...doc.data() });
         });
 
-        // تحديث حركة الصندوق اليومية فور جلب وتحديث الفواتير
         calculateCashflow();
 
-        // 1. عرض الأرشيف
         if (archiveContainer) {
             if (invoicesList.length === 0) {
                 archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
@@ -406,10 +535,9 @@ function loadInvoices() {
 
                 tableHTML += `</tbody></table>`;
                 archiveContainer.innerHTML = tableHTML;
+            }
         }
-    }
 
-        // 2. تحديث جدول إحصاء المواد المباعة
         const materialsBody = document.getElementById('materialsStatsBody');
         if (materialsBody) {
             let materialsMap = {};
@@ -421,7 +549,7 @@ function loadInvoices() {
                         let total = Number(item.total || 0);
                         if (!materialsMap[name]) materialsMap[name] = { qty: 0, total: 0 };
                         materialsMap[name].qty += qty;
-                       materialsMap[name].total += total;
+                        materialsMap[name].total += total;
                     });
                 }
             });
@@ -440,14 +568,13 @@ function loadInvoices() {
                 matHtml = '<tr><td colspan="3" style="text-align:center; padding:10px; color:#666;">لا توجد مواد مسجلة حتى الآن</td></tr>';
             }
             materialsBody.innerHTML = matHtml;
-      }
+        }
 
     }).catch((error) => {
         console.error("خطأ في جلب البيانات من السحابة: ", error);
     });
 }
 
-// دالة حذف الفاتورة نهائياً من سحابة Firebase
 window.deleteInvoice = function(firebaseId) {
     if (!firebaseId) return;
     
@@ -537,4 +664,5 @@ function resetForm() {
 document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
     loadInvoices();
+    loadDebtsTable();
 });
