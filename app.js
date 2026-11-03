@@ -22,9 +22,10 @@ db.enablePersistence()
         }
     });
 
-// مرجع مجموعة الفواتير والدفعات
+// المراجع والمجموعات في قاعدة البيانات
 const invoicesCollection = db.collection("invoices");
 const repaymentsCollection = db.collection("repayments");
+const expensesCollection = db.collection("expenses");
 let currentEditId = null;
 
 // التبديل بين التبويبات
@@ -133,7 +134,27 @@ function calculateGrandTotal() {
     }
 }
 
-// ----------------- الحفظ والطباعة ورقم الدور -----------------
+// دالة توليد رقم الدور (تصفير تلقائي بيوم جديد أو عند تفريغ الأرشيف)
+function generateQueueNumber() {
+    const todayStrFixed = new Date().toLocaleDateString('en-CA');
+    const lastSavedDate = localStorage.getItem('lastQueueDate');
+    let lastQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 0;
+
+    let queueNumber = 1;
+
+    if (lastSavedDate === todayStrFixed && lastQueueNum > 0) {
+        queueNumber = lastQueueNum + 1;
+    } else {
+        queueNumber = 1; 
+    }
+
+    localStorage.setItem('lastQueueNum', queueNumber);
+    localStorage.setItem('lastQueueDate', todayStrFixed);
+
+    return `A-${queueNumber}`;
+}
+
+// حفظ الفاتورة والطباعة وإضافة الإيصال للقائمة (بحد أقصى 5)
 document.getElementById('btnSaveAndPrint').addEventListener('click', function() {
     const customerName = document.getElementById('customerName').value.trim();
     const carNumber = document.getElementById('carNumber').value.trim();
@@ -158,26 +179,15 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
     const grandTotalText = document.getElementById('grandTotal').innerText;
     const numericGrandTotal = parseFloat(grandTotalText.replace('$', '')) || 0;
 
-    const todayStrFixed = new Date().toLocaleDateString('en-CA');
-    const lastSavedDate = localStorage.getItem('lastQueueDate');
-    let lastQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 0;
-
-    let queueNumber;
-    if (lastSavedDate !== todayStrFixed) {
-        queueNumber = 1;
-    } else {
-        queueNumber = lastQueueNum + 1;
-    }
-
-    localStorage.setItem('lastQueueNum', queueNumber);
-    localStorage.setItem('lastQueueDate', todayStrFixed);
+    const currentTurn = generateQueueNumber(); 
+    const currentQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 1;
 
     const newInvoice = {
-        queueNumber: queueNumber,
-        turnNumber: queueNumber,
+        queueNumber: currentQueueNum, 
+        turnNumber: currentTurn,      
         quarryName,
         date: new Date().toLocaleDateString('ar-SY'),
-        isoDate: todayStrFixed,
+        isoDate: new Date().toLocaleDateString('en-CA'), 
         customerName,
         carNumber: carNumber || '---',
         paymentStatus,
@@ -187,80 +197,152 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
 
     invoicesCollection.add(newInvoice)
     .then(() => {
-        console.log("تم حفظ الفاتورة في السحاب بنجاح!");
+        console.log("تم حفظ الفاتورة في الأرشيف بنجاح!");
         loadInvoices(); 
+        
+        // إضافة الفاتورة لقائمة آخر الإيصالات (بحد أقصى 5 مع الحذف التلقائي للأقدم)
+        addRecentReceipt(newInvoice);
+        
+        const wantPrint = confirm("تم حفظ الفاتورة بنجاح وإضافتها لقائمة آخر الإيصالات!\n\nهل تريد طباعة الوصل الآن؟");
+        if (wantPrint) {
+            printInvoiceData(newInvoice);
+        }
     })
     .catch((error) => {
         console.error("خطأ في الاتصال بالسحابة: ", error);
         alert("حدث خطأ أثناء الحفظ بالسحابة!");
     });
 
-    const wantPrint = confirm("تم حفظ الفاتورة بنجاح بالأرشيف!\n\nهل تريد طباعة الوصل الآن؟");
-    if (wantPrint) {
-        if(document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = quarryName;
-        if(document.getElementById('pDate')) document.getElementById('pDate').innerText = 'التاريخ: ' + new Date().toLocaleDateString('ar-SY') + ' ' + new Date().toLocaleTimeString('ar-SY', {hour: '2-digit', minute:'2-digit'});
-        if(document.getElementById('pQueueNum')) document.getElementById('pQueueNum').innerText = 'A-' + queueNumber;
-        if(document.getElementById('pCustomer')) document.getElementById('pCustomer').innerText = customerName;
-        if(document.getElementById('pDriver')) document.getElementById('pDriver').innerText = carNumber || '---';
-        if(document.getElementById('pPayment')) document.getElementById('pPayment').innerText = paymentStatus;
-
-        const container = document.getElementById('pItemsTableContainer');
-        if (container) {
-            container.innerHTML = '';
-            if (items.length >= 2) {
-                container.innerHTML = `
-                    <tr>
-                        <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 2</td>
-                        <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 1</td>
-                    </tr>
-                    <tr>
-                        <td class="text-center" style="width: 50%; border-left: 1px solid #000;">${items[1].name}</td>
-                        <td class="text-center" style="width: 50%;">${items[0].name}</td>
-                    </tr>
-                    <tr>
-                        <td class="bg-gray bold text-center" style="border-left: 1px solid #000;">كمية 2</td>
-                        <td class="bg-gray bold text-center">كمية 1</td>
-                    </tr>
-                    <tr>
-                        <td class="bold text-center" style="border-left: 1px solid #000;">${items[1].qty} متر</td>
-                        <td class="bold text-center">${items[0].qty} متر</td>
-                    </tr>
-                  `;
-            } else if (items.length === 1) {
-                container.innerHTML = `
-                    <tr>
-                        <td class="bg-gray bold text-center" style="width: 50%;">البضاعة</td>
-                        <td class="text-center" style="width: 50%;">${items[0].name}</td>
-                    </tr>
-                    <tr>
-                        <td class="bg-gray bold text-center">الكمية</td>
-                        <td class="bold text-center">${items[0].qty} متر</td>
-                    </tr>
-                `;
-            }
-        }
-
-        setTimeout(() => {
-            window.print();
-        }, 100);
-    } 
-
     resetForm();
 });
 
-// ----------------- معالجة وحفظ دفعات الديون المحصلة -----------------
+// إدارة قائمة آخر الإيصالات (تخزين حتى 5، وحذف الأقدم تلقائياً)
+function addRecentReceipt(inv) {
+    let recent = JSON.parse(localStorage.getItem('recent_receipts') || '[]');
+    recent.push(inv);
+    if (recent.length > 5) {
+        recent.shift(); // حذف أول إيصال (الأقدم) تلقائياً بمجرد تجاوز العدد 5
+    }
+    localStorage.setItem('recent_receipts', JSON.stringify(recent));
+    renderRecentReceipts();
+}
+
+function renderRecentReceipts() {
+    const section = document.getElementById('latestReceiptSection');
+    const container = document.getElementById('recentReceiptsList');
+    let recent = JSON.parse(localStorage.getItem('recent_receipts') || '[]');
+
+    if (!section || !container) return;
+
+    if (recent.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+    container.innerHTML = '';
+
+    // عرض الإيصالات من الأحدث إلى الأقدم
+    recent.slice().reverse().forEach((inv, index) => {
+        const actualIndex = recent.length - 1 - index;
+        const itemDiv = document.createElement('div');
+        itemDiv.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px;";
+        itemDiv.innerHTML = `
+            <span>🧾 الزبون: <b>${inv.customerName}</b> - الدور (${inv.turnNumber}) - الإجمالي ($${Number(inv.grandTotal).toFixed(2)})</span>
+            <div>
+                <button type="button" onclick="printSpecificReceipt(${actualIndex})" style="background: #2980b9; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 5px;">🖨️ طباعة</button>
+                <button type="button" onclick="deleteRecentReceipt(${actualIndex})" style="background: #e74c3c; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">🗑️ حذف</button>
+            </div>
+        `;
+        container.appendChild(itemDiv);
+    });
+}
+
+window.printSpecificReceipt = function(index) {
+    let recent = JSON.parse(localStorage.getItem('recent_receipts') || '[]');
+    if (recent[index]) {
+        printInvoiceData(recent[index]);
+    }
+};
+
+window.deleteRecentReceipt = function(index) {
+    let recent = JSON.parse(localStorage.getItem('recent_receipts') || '[]');
+    if (confirm("هل تريد إزالة هذا الإيصال من قائمة الإيصالات السريعة؟")) {
+        recent.splice(index, 1);
+        localStorage.setItem('recent_receipts', JSON.stringify(recent));
+        renderRecentReceipts();
+    }
+};
+
+function printInvoiceData(inv) {
+    if(document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = inv.quarryName || 'مقلع أبناء عبد الغفور الصياح';
+    if(document.getElementById('pDate')) document.getElementById('pDate').innerText = 'التاريخ: ' + (inv.date || '');
+    if(document.getElementById('pQueueNum')) document.getElementById('pQueueNum').innerText = inv.turnNumber || ('A-' + (inv.queueNumber || 1));
+    if(document.getElementById('pCustomer')) document.getElementById('pCustomer').innerText = inv.customerName || '';
+    if(document.getElementById('pDriver')) document.getElementById('pDriver').innerText = inv.carNumber || '---';
+    if(document.getElementById('pPayment')) document.getElementById('pPayment').innerText = inv.paymentStatus || '';
+
+    const container = document.getElementById('pItemsTableContainer');
+    if (container && inv.items) {
+        container.innerHTML = '';
+        if (inv.items.length >= 2) {
+            container.innerHTML = `
+                <tr>
+                    <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 2</td>
+                    <td class="bg-gray bold text-center" style="width: 50%;">البضاعة 1</td>
+                </tr>
+                <tr>
+                    <td class="text-center" style="width: 50%; border-left: 1px solid #000;">${inv.items[1].name}</td>
+                    <td class="text-center" style="width: 50%;">${inv.items[0].name}</td>
+                </tr>
+                <tr>
+                    <td class="bg-gray bold text-center" style="border-left: 1px solid #000;">كمية 2</td>
+                    <td class="bg-gray bold text-center">كمية 1</td>
+                </tr>
+                <tr>
+                    <td class="bold text-center" style="border-left: 1px solid #000;">${inv.items[1].qty} متر</td>
+                    <td class="bold text-center">${inv.items[0].qty} متر</td>
+                </tr>
+              `;
+        } else if (inv.items.length === 1) {
+            container.innerHTML = `
+                <tr>
+                    <td class="bg-gray bold text-center" style="width: 50%;">البضاعة</td>
+                    <td class="text-center" style="width: 50%;">${inv.items[0].name}</td>
+                </tr>
+                <tr>
+                    <td class="bg-gray bold text-center">الكمية</td>
+                    <td class="bold text-center">${inv.items[0].qty} متر</td>
+                </tr>
+            `;
+        }
+    }
+
+    setTimeout(() => {
+        window.print();
+    }, 200);
+}
+
+// معالجة وحفظ دفعات الديون المحصلة
 document.addEventListener("DOMContentLoaded", () => {
     const repaidDateEl = document.getElementById('repaidDate');
     if (repaidDateEl) {
         repaidDateEl.value = new Date().toLocaleDateString('en-CA');
     }
 
+    // تحميل آخر الإيصالات المخزنة عند فتح الصفحة
+    renderRecentReceipts();
+
     const btnSaveRepayment = document.getElementById('btnSaveRepayment');
     if (btnSaveRepayment) {
         btnSaveRepayment.addEventListener('click', function() {
-            const customerName = document.getElementById('repaidCustomerName').value.trim();
-            const amount = parseFloat(document.getElementById('repaidAmount').value) || 0;
-            const dateInput = document.getElementById('repaidDate').value;
+            const customerNameInput = document.getElementById('repaidCustomerName');
+            const amountInput = document.getElementById('repaidAmount');
+            const dateInputEl = document.getElementById('repaidDate');
+
+            const customerName = customerNameInput ? customerNameInput.value.trim() : '';
+            const amount = amountInput ? parseFloat(amountInput.value) || 0 : 0;
+            const dateInput = dateInputEl ? dateInputEl.value : '';
             const todayIso = new Date().toLocaleDateString('en-CA');
 
             if (!customerName || amount <= 0) {
@@ -278,9 +360,9 @@ document.addEventListener("DOMContentLoaded", () => {
             repaymentsCollection.add(repaymentData)
             .then(() => {
                 alert("تم تسجيل دفعة الدين بنجاح وخصمها من الحساب وتحديث الصندوق!");
-                document.getElementById('repaidCustomerName').value = '';
-                document.getElementById('repaidAmount').value = '';
-                document.getElementById('repaidDate').value = new Date().toLocaleDateString('en-CA');
+                if(customerNameInput) customerNameInput.value = '';
+                if(amountInput) amountInput.value = '';
+                if(dateInputEl) dateInputEl.value = new Date().toLocaleDateString('en-CA');
                 loadDebtsTable();
                 calculateCashflow();
             })
@@ -292,7 +374,42 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// دالة جلب وعرض ديون الزبائن مع خصم المدفوعات تلقائياً
+// حفظ المصاريف / الواردات
+window.saveExpenseData = function() {
+    const noteInput = document.getElementById('expenseNote') || document.querySelector('#tabExpenses input[type="text"]');
+    const amountInput = document.getElementById('expenseAmount') || document.querySelector('#tabExpenses input[type="number"]');
+
+    const note = noteInput ? noteInput.value.trim() : '';
+    const amount = amountInput ? parseFloat(amountInput.value) || 0 : 0;
+    const todayIso = new Date().toLocaleDateString('en-CA');
+    const todayAr = new Date().toLocaleDateString('ar-SY');
+
+    if (!note || amount <= 0) {
+        alert("يرجى إدخال بيان المصروف والمبلغ بشكل صحيح!");
+        return;
+    }
+
+    const expenseData = {
+        note: note,
+        amount: amount,
+        date: todayAr,
+        isoDate: todayIso,
+        timestamp: Date.now()
+    };
+
+    expensesCollection.add(expenseData)
+    .then(() => {
+        alert("تم حفظ المصروف بنجاح وتحديث الصندوق!");
+        if (noteInput) noteInput.value = '';
+        if (amountInput) amountInput.value = '';
+        calculateCashflow();
+    })
+    .catch((error) => {
+        console.error("خطأ في حفظ المصروف: ", error);
+        alert("حدث خطأ أثناء حفظ المصروف بالسحابة!");
+    });
+};
+
 function loadDebtsTable() {
     const debtsContainer = document.getElementById('debtsListTable');
     const repaidContainer = document.getElementById('repaidDebtsListTable');
@@ -412,18 +529,17 @@ window.filterDebts = function() {
     });
 };
 
-// ----------------- حساب حركة الصندوق اليومية باستخدام الـ IDs مباشرة -----------------
 function calculateCashflow() {
     const dateFilterEl = document.getElementById('cashDateFilter');
     let selectedDateStr = '';
     
     if (dateFilterEl && dateFilterEl.value) {
-        selectedDateStr = dateFilterEl.value; // صيغة YYYY-MM-DD
+        selectedDateStr = dateFilterEl.value; 
     } else {
         selectedDateStr = new Date().toLocaleDateString('en-CA');
     }
 
-    Promise.all([invoicesCollection.get(), repaymentsCollection.get()]).then(([querySnapshot, repSnapshot]) => {
+    Promise.all([invoicesCollection.get(), repaymentsCollection.get(), expensesCollection.get()]).then(([querySnapshot, repSnapshot, expSnapshot]) => {
         let totalCashSales = 0;
         let totalNewDebts = 0;
         let totalRepaidDebts = 0;
@@ -448,7 +564,13 @@ function calculateCashflow() {
             }
         });
 
-        // تحديث البطاقات الأربع مباشرة عبر IDs الخاصة بها في الـ HTML
+        expSnapshot.forEach((doc) => {
+            const exp = doc.data();
+            if (exp.isoDate === selectedDateStr || exp.date === selectedDateStr) {
+                totalExpenses += Number(exp.amount || 0);
+            }
+        });
+
         const cashSalesValEl = document.getElementById('cashSalesVal');
         const cashRepaidValEl = document.getElementById('cashRepaidVal');
         const cashExpensesValEl = document.getElementById('cashExpensesVal');
@@ -460,7 +582,6 @@ function calculateCashflow() {
         if (cashExpensesValEl) cashExpensesValEl.innerText = `$${totalExpenses.toFixed(2)}`;
         if (cashNewDebtsValEl) cashNewDebtsValEl.innerText = `$${totalNewDebts.toFixed(2)}`;
 
-        // الرصيد الصافي الفعلي بالصندوق في نهاية اليوم = مبيعات النقد + الدفعات المحصلة من الديون - المصاريف
         let netTotal = totalCashSales + totalRepaidDebts - totalExpenses;
         if (finalCashBalanceEl) {
             finalCashBalanceEl.innerText = `$${netTotal.toFixed(2)}`;
@@ -478,7 +599,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// جلب الأرشيف والبيانات من السحابة
+// جلب الأرشيف وترتيبه تصاعدياً
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
     
@@ -486,6 +607,17 @@ function loadInvoices() {
         let invoicesList = [];
         querySnapshot.forEach((doc) => {
             invoicesList.push({ firebaseId: doc.id, ...doc.data() });
+        });
+
+        if (invoicesList.length === 0) {
+            localStorage.setItem('lastQueueNum', '0');
+            localStorage.removeItem('lastQueueDate');
+        }
+
+        invoicesList.sort((a, b) => {
+            let numA = Number(a.queueNumber || (a.turnNumber ? a.turnNumber.replace(/\D/g, '') : 1));
+            let numB = Number(b.queueNumber || (b.turnNumber ? b.turnNumber.replace(/\D/g, '') : 1));
+            return numA - numB;
         });
 
         calculateCashflow();
@@ -512,13 +644,16 @@ function loadInvoices() {
                         <tbody>
                 `;
 
-                invoicesList.slice().reverse().forEach((inv) => {
+                invoicesList.forEach((inv) => {
                     const amount = Number(inv.grandTotal || 0);
                     let itemsSummary = (inv.items && Array.isArray(inv.items)) ? inv.items.map(i => `${i.name}: ${i.qty}م3 × ${i.price}$`).join(' | ') : '';
                     
+                    let formattedTurn = inv.turnNumber || `A-${inv.queueNumber || 1}`;
+                    formattedTurn = formattedTurn.replace(/^A-A-/, 'A-');
+
                     tableHTML += `
                         <tr>
-                            <td style="padding:10px; border:1px solid #ddd;"><span style="background:#2c3e50; color:white; padding:2px 6px; border-radius:3px;">A-${inv.turnNumber || inv.queueNumber || 1}</span></td>
+                            <td style="padding:10px; border:1px solid #ddd;"><span style="background:#2c3e50; color:white; padding:2px 6px; border-radius:3px;">${formattedTurn}</span></td>
                             <td style="padding:10px; border:1px solid #ddd; color:#2980b9;"><b>${inv.quarryName || '---'}</b></td>
                             <td style="padding:10px; border:1px solid #ddd;">${inv.date || '---'}</td>
                             <td style="padding:10px; border:1px solid #ddd;"><b>${inv.customerName || '---'}</b></td>
@@ -588,7 +723,7 @@ window.deleteInvoice = function(firebaseId) {
     }
 };
 
-// ----------------- المراسلة الفورية -----------------
+// المراسلة الفورية
 function getMessages() { return JSON.parse(localStorage.getItem('quarry_messages') || '[]'); }
 function saveMessages(msgs) { localStorage.setItem('quarry_messages', JSON.stringify(msgs)); }
 
