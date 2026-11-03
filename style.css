@@ -235,11 +235,11 @@ header {
         visibility: hidden;
     }
     
-    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea * { 
+    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea *, #printReceipt, #printReceipt * { 
         visibility: visible;
     }
     
-    .print-only, #invoicePrintArea {
+    .print-only, #invoicePrintArea, #printReceipt {
         display: block !important;
         position: absolute;
         left: 0;
@@ -247,6 +247,15 @@ header {
         width: 100%;
         margin: 0;
         padding: 5px;
+    }
+
+    /* ضمان ظهور اللوجو والصور بشكل واضح عند الطباعة */
+    #printReceipt img, #invoicePrintArea img {
+        display: block !important;
+        visibility: visible !important;
+        max-width: 70px !important;
+        height: auto !important;
+        margin: 0 auto 5px auto !important;
     }
 
     @page {
