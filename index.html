@@ -35,7 +35,7 @@
         <!-- تحديد اسم المقلع الحالي -->
         <div style="background: #eaf2f8; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
             <label><strong>اسم المقلع الحالي:</strong></label>
-            <input type="text" id="quarryName" value="مقلع أبناء عبد الغفورالصياح"style="padding: 6px 12px; border: 1px solid #3498db; border-radius: 4px; font-weight: bold; color: #1b4f72; min-width: 240px;">
+            <input type="text" id="quarryName" value="مقلع أبناء عبد الغفور الصياح" style="padding: 6px 12px; border: 1px solid #3498db; border-radius: 4px; font-weight: bold; color: #1b4f72; min-width: 240px;">
             <span style="font-size: 12px; color: #555;">(يظهر في الإيصال وعلى لوحة المشرف)</span>
         </div>
 
@@ -50,7 +50,7 @@
             <button class="tab-btn" onclick="switchTab('chat')">💬 مراسلة المشرف</button>
         </div>
 
-        <!-- 1. قسم الصادرات (المبيعات) -->
+        <!--قسم الصادرات (المبيعات) -->
         <div id="tabSales" class="tab-content active">
             <h3>تسجيل فاتورة صادر جديد</h3>
             <div class="form-row">
@@ -134,9 +134,36 @@
             <button id="btnSaveExpense" class="btn-save" style="margin-top: 10px;">حفظ المصروف</button>
         </div>
 
-        <!-- 3. قسم كشف الحساب والديون -->
+        <!-- 3. قسم كشف الحساب والديون (تمت إضافة خانة تسجيل وسجل الدفعات المحصلة هنا) -->
         <div id="tabDebts" class="tab-content">
             <h3>كشف الحساب والديون المترتبة على الزبائن</h3>
+            
+            <!-- [إضافة جديدة] قسم تسجيل دفعة محصلة من الدين -->
+            <div style="background: #f4f9f4; border: 1px solid #a9dfbf; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin-top: 0; color: #27ae60;">تسجيل دفعة محصلة من الدين (تخصم تلقائياً)</h4>
+                <div class="form-row" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label>اسم الزبون:</label>
+                        <input type="text" id="repaidCustomerName" placeholder="أدخل اسم الزبون تماماً">
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 150px;">
+                        <label>المبلغ المحصل ($):</label>
+                        <input type="number" id="repaidAmount" placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 150px;">
+                        <label>تاريخ الدفعة:</label>
+                        <input type="date" id="repaidDate">
+                    </div>
+                </div>
+                <button type="button" id="btnSaveRepayment" class="btn-save" style="background: #27ae60; width: 100%;">💾 حفظ دفعة الدين وتحديث رصيد الزبون والصندوق</button>
+            </div>
+
+            <!-- [إضافة جديدة] جدول عرض الدفعات المحصلة من الديون -->
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #2980b9;">سجل الدفعات المحصلة من الديون</h4>
+                <div id="repaidDebtsListTable"></div>
+            </div>
+
             <div class="search-section" style="margin: 15px 0;">
                 <input type="text" id="searchDebtCustomer" placeholder="ابحث باسم الزبون لعرض ديونه..." onkeyup="filterDebts()">
             </div>
@@ -145,7 +172,7 @@
 
         <!-- 4. قسم حركة الصندوق حسب التاريخ -->
         <div id="tabCashflow" class="tab-content">
-            <h3>حركة الصندوق اليومية والمالية</h3>
+            <h3>حركة الصندوق اليومية المالية</h3>
             <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
                 <label>اختر التاريخ للتحقق:</label>
                 <input type="date" id="cashDateFilter" onchange="calculateCashflow()" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc;">
@@ -265,9 +292,6 @@
         </table>
     </div>
 </div>
-
-
-
 
     <script src="app.js"></script>
 </body>
