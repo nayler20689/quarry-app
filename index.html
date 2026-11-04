@@ -34,13 +34,19 @@
             </div>
         </header>
 
-        <!-- تحديد اسم المقلع الحالي -->
-        <div style="background: #eaf2f8; padding: 10px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-            <label><strong>اسم المقلع الحالي:</strong></label>
-            <input type="text" id="quarryName" value="مقلع أبناء عبد الغفور الصياح" style="padding: 6px 12px; border: 1px solid #3498db; border-radius: 4px; font-weight: bold; color: #1b4f72; min-width: 240px;">
-            <span style="font-size: 12px; color: #555;">(يظهر في الإيصال وعلى لوحة المشرف)</span>
-        </div>
+     <!-- تحديد اسم المقلع الحالي -->
+    <div style="background: #fdf5e6; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #e6d2b5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <label><strong>اسم المقلع الحالي:</strong></label>
+        
+        <!-- حقل نصي حر ليكتب المحاسب اسم مقلعه الحقيقي بنفسه -->
+        <input type="text" id="quarryName" placeholder="اكتب اسم المقلع هنا..." style="flex: 1; min-width: 200px; padding: 8px; border-radius: 4px; border: 1px solid #8B5A2B; font-weight: bold; background: #fff;">
 
+        <!-- زر الحفظ والتثبيت التلقائي -->
+        <button type="button" onclick="saveQuarryNameSetting()" style="background: #27ae60; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; white-space: nowrap;">
+            💾 حفظ وثبيت
+        </button>
+        <span style="font-size: 11px; color: #666; width: 100%;">يظهر في الإيصال وعلى لوحة المشرف (اكتب اسم مقلعمك واضغط حفظ مرة واحدة)</span>
+    </div>
         <!-- التبويبات الشاملة -->
         <div class="tabs-header">
             <button class="tab-btn active" onclick="switchTab('sales')">الصادرات (المبيعات)</button>
