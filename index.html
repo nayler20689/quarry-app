@@ -126,7 +126,7 @@
             </div>
         </div>
 
-        <!-- 2. قسم الواردات (المصاريف) -->
+       <!-- 2. قسم الواردات (المصاريف) -->
         <div id="tabExpenses" class="tab-content">
             <h3>تسجيل سند مصاريف / واردات للمقلع</h3>
             <div class="form-row">
@@ -140,6 +140,17 @@
                 </div>
             </div>
             <button type="button" onclick="saveExpenseData()" id="btnSaveExpense" class="btn-save" style="margin-top: 10px;">حفظ المصروف</button>
+
+            <!-- جدول سجل المصاريف والواردات المضاف حديثاً -->
+            <div style="margin-top: 25px;">
+                <h4 style="color: #2980b9; border-bottom: 2px solid #3498db; padding-bottom: 5px;">📋 سجل المصاريف والواردات المسجلة</h4>
+                <div class="search-section" style="margin: 10px 0;">
+                    <input type="text" id="searchExpenseNote" placeholder="ابحث في بيان المصروف أو أجور العمال..." onkeyup="filterExpenses()" style="padding: 6px; width: 100%; max-width: 300px; border: 1px solid #ccc; border-radius: 4px;">
+                </div>
+                <div id="expensesListTable" style="margin-top: 10px;">
+                    <!-- سيتم تعبئة الجدول برمجياً من ملف الجافاسكريبت -->
+                </div>
+            </div>
         </div>
 
         <!-- 3. قسم كشف الحساب والديون -->
@@ -208,9 +219,12 @@
             </div>
         </div>
 
-        <!-- 5. قسم إحصاء المواد المباعة التراكمي -->
+       <!-- 5. قسم إحصاء المواد المباعة التراكمي واليومي -->
         <div id="tabMaterials" class="tab-content">
-            <h3>إحصاء الكميات والمواد المباعة التراكمية</h3>
+            <h3>إحصاء الكميات والمواد المباعة التراكمية واليومية</h3>
+            
+            <!-- الجدول الأول: الإحصاء التراكمي الشامل -->
+            <h4 style="color: #8B5A2B; border-bottom: 2px solid #8B5A2B; padding-bottom: 5px; margin-top: 15px;">📊 الإحصاء التراكمي الشامل (منذ بدء التشغيل)</h4>
             <p style="color: #666; font-size: 13px;">تخزين وتجميع كلي للكميات المباعة منذ بدء تشغيل البرنامج.</p>
             <table class="items-table">
                 <thead>
@@ -222,6 +236,28 @@
                 </thead>
                 <tbody id="materialsStatsBody"></tbody>
             </table>
+
+            <!-- الجدول الثاني: إحصاء مبيعات المواد اليومي حسب التاريخ -->
+            <div style="margin-top: 35px; background: #fdf5e6; padding: 15px; border-radius: 8px; border: 1px solid #e6d2b5;">
+                <h4 style="color: #2980b9; margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 5px;">📅 إحصاء المبيعات والكميات حسب اليوم والتاريخ</h4>
+                
+                <div style="margin: 15px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label><strong>اختر التاريخ لعرض مبيعاته:</strong></label>
+                    <input type="date" id="dailyMaterialsDateFilter" onchange="loadDailyMaterialsStats()" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-weight: bold; color: #2c3e50;">
+                </div>
+
+                <table class="items-table" style="background: #fff;">
+                    <thead>
+                        <tr style="background: #2980b9;">
+                            <th>اسم المادة</th>
+                            <th>الكمية المباعة اليوم (م3)</th>
+                            <th>قيمة مبيعات اليوم ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyMaterialsStatsBody"></tbody>
+                </table>
+            </div>
+        </div>
         </div>
 
         <!-- 6. قسم الأرشيف الكامل -->
