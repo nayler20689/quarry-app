@@ -40,6 +40,7 @@ window.switchTab = function(tabName) {
     } else if (tabName === 'expenses') {
         btns[1].classList.add('active');
         document.getElementById('tabExpenses').classList.add('active');
+        loadExpensesTable(); // تحميل سجل المصاريف عند فتح تبويب المصاريف
     } else if (tabName === 'debts') {
         btns[2].classList.add('active');
         document.getElementById('tabDebts').classList.add('active');
@@ -332,6 +333,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // تحميل آخر الإيصالات المخزنة عند فتح الصفحة
     renderRecentReceipts();
+    loadExpensesTable(); // تحميل جدول المصاريف عند البدء
 
     const btnSaveRepayment = document.getElementById('btnSaveRepayment');
     if (btnSaveRepayment) {
@@ -374,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// حفظ المصاريف / الواردات
+// حفظ المصاريف / الواردات وتحديث الجدول والصندوق
 window.saveExpenseData = function() {
     const noteInput = document.getElementById('expenseNote') || document.querySelector('#tabExpenses input[type="text"]');
     const amountInput = document.getElementById('expenseAmount') || document.querySelector('#tabExpenses input[type="number"]');
@@ -383,6 +385,7 @@ window.saveExpenseData = function() {
     const amount = amountInput ? parseFloat(amountInput.value) || 0 : 0;
     const todayIso = new Date().toLocaleDateString('en-CA');
     const todayAr = new Date().toLocaleDateString('ar-SY');
+    const currentTime = new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' });
 
     if (!note || amount <= 0) {
         alert("يرجى إدخال بيان المصروف والمبلغ بشكل صحيح!");
@@ -394,6 +397,7 @@ window.saveExpenseData = function() {
         amount: amount,
         date: todayAr,
         isoDate: todayIso,
+        time: currentTime,
         timestamp: Date.now()
     };
 
@@ -402,11 +406,94 @@ window.saveExpenseData = function() {
         alert("تم حفظ المصروف بنجاح وتحديث الصندوق!");
         if (noteInput) noteInput.value = '';
         if (amountInput) amountInput.value = '';
+        loadExpensesTable(); // تحديث جدول المصاريف مباشرة
         calculateCashflow();
     })
     .catch((error) => {
         console.error("خطأ في حفظ المصروف: ", error);
         alert("حدث خطأ أثناء حفظ المصروف بالسحابة!");
+    });
+};
+
+// دالة تحميل وعرض جدول المصاريف والسجل التفصيلي
+function loadExpensesTable() {
+    const expensesContainer = document.getElementById('expensesListTable');
+    if (!expensesContainer) return;
+
+    expensesCollection.get().then((querySnapshot) => {
+        let expensesList = [];
+        querySnapshot.forEach((doc) => {
+            expensesList.push({ id: doc.id, ...doc.data() });
+        });
+
+        // ترتيب المصاريف من الأحدث إلى الأقدم بناءً على الـ timestamp
+        expensesList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        if (expensesList.length === 0) {
+            expensesContainer.innerHTML = "<p style='padding:10px; color:#666; font-size:13px;'>لا توجد مصاريف أو واردات مسجلة حتى الآن.</p>";
+            return;
+        }
+
+        let tableHTML = `
+            <table class="items-table" style="width:100%; border-collapse: collapse; background:#fff;">
+                <thead>
+                    <tr style="background:#eaf2f8;">
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">التاريخ والوقت</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">بيان المصروف (أجور عمال، وقود، صيانة...)</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المبلغ ($)</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        expensesList.forEach((exp) => {
+            let dateTimeStr = `${exp.date || '---'} ${exp.time ? '(' + exp.time + ')' : ''}`;
+            tableHTML += `
+                <tr>
+                    <td style="padding:10px; border:1px solid #ddd; font-size:13px;">${dateTimeStr}</td>
+                    <td style="padding:10px; border:1px solid #ddd;"><b>${exp.note || '---'}</b></td>
+                    <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#c0392b;">$${Number(exp.amount || 0).toFixed(2)}</td>
+                    <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+                        <button type="button" onclick="deleteExpense('${exp.id}')" style="background:#e74c3c; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:12px;">حذف X</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHTML += `</tbody></table>`;
+        expensesContainer.innerHTML = tableHTML;
+
+    }).catch((error) => {
+        console.error("خطأ في جلب بيانات المصاريف: ", error);
+    });
+}
+
+// دالة حذف مصروف معين من جدول السجل والسحابة
+window.deleteExpense = function(id) {
+    if (!id) return;
+    if (confirm("هل أنت متأكد من حذف هذا السجل نهائياً؟")) {
+        expensesCollection.doc(id).delete().then(() => {
+            alert("تم حذف المصروف بنجاح!");
+            loadExpensesTable();
+            calculateCashflow();
+        }).catch((error) => {
+            console.error("خطأ في حذف المصروف: ", error);
+        });
+    }
+};
+
+// دالة البحث والفلترة في جدول المصاريف
+window.filterExpenses = function() {
+    let input = document.getElementById('searchExpenseNote').value.toLowerCase();
+    let rows = document.querySelectorAll('#expensesListTable tbody tr');
+    rows.forEach(row => {
+        let noteText = row.cells[1] ? row.cells[1].textContent.toLowerCase() : '';
+        if (noteText.includes(input)) {
+            row.style.display = "";
+        } else {
+            row.style.display = "none";
+        }
     });
 };
 
@@ -800,4 +887,83 @@ document.addEventListener("DOMContentLoaded", () => {
     attachEventsToRows();
     loadInvoices();
     loadDebtsTable();
+    loadExpensesTable();
+    loadDailyMaterialsStats(); // تم إضافة استدعاء جدول الإحصاء اليومي هنا
 });
+// دالة تحميل وحساب إحصاء المواد المباعة اليومية حسب التاريخ
+function loadDailyMaterialsStats() {
+    const dateFilterEl = document.getElementById('dailyMaterialsDateFilter');
+    const dailyBody = document.getElementById('dailyMaterialsStatsBody');
+    if (!dailyBody) return;
+
+    let selectedDateStr = dateFilterEl && dateFilterEl.value ? dateFilterEl.value : new Date().toLocaleDateString('en-CA');
+
+    invoicesCollection.get().then((querySnapshot) => {
+        let dailyMaterialsMap = {};
+        let dayTotalQty = 0;
+        let dayTotalMoney = 0;
+
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            if (inv.isoDate === selectedDateStr || inv.date === selectedDateStr) {
+                if (inv.items && Array.isArray(inv.items)) {
+                    inv.items.forEach(item => {
+                        let name = item.name || 'مادة عامة';
+                        let qty = Number(item.qty || 0);
+                        let total = Number(item.total || 0);
+                        
+                        if (!dailyMaterialsMap[name]) dailyMaterialsMap[name] = { qty: 0, total: 0 };
+                        dailyMaterialsMap[name].qty += qty;
+                        dailyMaterialsMap[name].total += total;
+
+                        dayTotalQty += qty;
+                        dayTotalMoney += total;
+                    });
+                }
+            }
+        });
+
+        let matHtml = '';
+        for (let mat in dailyMaterialsMap) {
+            matHtml += `
+                <tr>
+                    <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${dailyMaterialsMap[mat].qty.toFixed(2)} م3</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#27ae60;"><b>${dailyMaterialsMap[mat].total.toFixed(2)} $</b></td>
+                </tr>
+            `;
+        }
+
+        if (matHtml === '') {
+            matHtml = `<tr><td colspan="3" style="text-align:center; padding:12px; color:#666;">لا توجد مبيعات مواد مسجلة بتاريخ (${selectedDateStr})</td></tr>`;
+        } else {
+            matHtml += `
+                <tr style="background:#e8f8f5; font-weight:bold;">
+                    <td style="padding:10px; border:1px solid #ddd; text-align:right;">الإجمالي اليومي الكلي:</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-size:15px;">${dayTotalQty.toFixed(2)} م3</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#27ae60; font-size:15px;">${dayTotalMoney.toFixed(2)} $</td>
+                </tr>
+            `;
+        }
+
+        dailyBody.innerHTML = matHtml;
+
+    }).catch((error) => {
+        console.error("خطأ في جلب البيانات اليومية للمواد: ", error);
+    });
+}
+
+// دالة لضمان تعيين تاريخ اليوم في محدد التاريخ عند فتح تبويب المواد المباعة
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabName) {
+    if (typeof originalSwitchTab === 'function') {
+        originalSwitchTab(tabName);
+    }
+    if (tabName === 'materials') {
+        const dateInput = document.getElementById('dailyMaterialsDateFilter');
+        if (dateInput && !dateInput.value) {
+            dateInput.valueAsDate = new Date();
+        }
+        loadDailyMaterialsStats();
+    }
+};
