@@ -55,7 +55,10 @@
             <button class="tab-btn" onclick="switchTab('cashflow')">حركة الصندوق اليومية</button>
             <button class="tab-btn" onclick="switchTab('materials')">إحصاء المواد المباعة</button>
             <button class="tab-btn" onclick="switchTab('archive')">الأرشيف الكامل</button>
-            <button class="tab-btn" onclick="switchTab('chat')">💬 مراسلة المشرف</button>
+<button class="tab-btn" onclick="switchTab('chat')" style="position: relative;">
+    💬 مراسلة المشرف
+    <span id="msgBadge" style="display: none; position: absolute; top: -5px; right: -5px; background: #e74c3c; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; font-weight: bold;">0</span>
+</button>
         </div>
 
         <!-- 1. قسم الصادرات (المبيعات) -->
