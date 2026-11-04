@@ -686,14 +686,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// جلب الأرشيف وترتيبه تصاعدياً
+// دالة جلب الأرشيف وترتيبه تصاعدياً مع فلترة حسب مقلع المحاسب الحالي
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
-    
+    const myQuarryName = localStorage.getItem('savedQuarryName') || '';
+
     invoicesCollection.get().then((querySnapshot) => {
         let invoicesList = [];
         querySnapshot.forEach((doc) => {
-            invoicesList.push({ firebaseId: doc.id, ...doc.data() });
+            const invData = doc.data();
+            if (!myQuarryName || invData.quarryName === myQuarryName) {
+                invoicesList.push({ firebaseId: doc.id, ...invData });
+            }
         });
 
         if (invoicesList.length === 0) {
@@ -706,97 +710,42 @@ function loadInvoices() {
             let numB = Number(b.queueNumber || (b.turnNumber ? b.turnNumber.replace(/\D/g, '') : 1));
             return numA - numB;
         });
-
+        
         calculateCashflow();
 
         if (archiveContainer) {
-            if (invoicesList.length === 0) {
-                archiveContainer.innerHTML = "<p style='padding:10px; color:#666;'>لا توجد فواتير مسجلة حتى الآن.</p>";
-            } else {
-                let tableHTML = `
-                    <table class="items-table" style="width:100%; margin-top:10px; border-collapse: collapse; background:#fff;">
-                        <thead>
-                            <tr style="background:#f2f2f2;">
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">رقم الدور</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المقلع</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">التاريخ</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الزبون</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">السائق</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">المواد والكميات</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">الإجمالي ($)</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:right;">حالة الدفع</th>
-                                <th style="padding:10px; border:1px solid #ddd; text-align:center;">إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                invoicesList.forEach((inv) => {
-                    const amount = Number(inv.grandTotal || 0);
-                    let itemsSummary = (inv.items && Array.isArray(inv.items)) ? inv.items.map(i => `${i.name}: ${i.qty}م3 × ${i.price}$`).join(' | ') : '';
-                    
-                    let formattedTurn = inv.turnNumber || `A-${inv.queueNumber || 1}`;
-                    formattedTurn = formattedTurn.replace(/^A-A-/, 'A-');
-
-                    tableHTML += `
-                        <tr>
-                            <td style="padding:10px; border:1px solid #ddd;"><span style="background:#2c3e50; color:white; padding:2px 6px; border-radius:3px;">${formattedTurn}</span></td>
-                            <td style="padding:10px; border:1px solid #ddd; color:#2980b9;"><b>${inv.quarryName || '---'}</b></td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.date || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;"><b>${inv.customerName || '---'}</b></td>
-                            <td style="padding:10px; border:1px solid #ddd;">${inv.carNumber || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd;">${itemsSummary}</td>
-                            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#27ae60;">$${amount.toFixed(2)}</td>
-                            <td style="padding:10px; border:1px solid #ddd; color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
-                            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
-                                <button type="button" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#e74c3c; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
-                            </td>
-                        </tr>
-                    `;
-                });
-
-                tableHTML += `</tbody></table>`;
-                archiveContainer.innerHTML = tableHTML;
-            }
-        }
-
-        const materialsBody = document.getElementById('materialsStatsBody');
-        if (materialsBody) {
-            let materialsMap = {};
+            let html = '';
             invoicesList.forEach(inv => {
+                html += `
+                    <tr>
+                        <td><b>${inv.quarryName || 'غير مسمى'}</b></td>
+                        <td><b>#${inv.turnNumber || inv.queueNumber || 1}</b></td>
+                        <td>${inv.date || '---'}</td>
+                        <td><b>${inv.customerName || '---'}</b></td>
+                        <td>${inv.carNumber || '---'}</td>
+                        <td>`;
+                
                 if (inv.items && Array.isArray(inv.items)) {
-                    inv.items.forEach(item => {
-                        let name = item.name || 'مادة عامة';
-                        let qty = Number(item.qty || 0);
-                        let total = Number(item.total || 0);
-                        if (!materialsMap[name]) materialsMap[name] = { qty: 0, total: 0 };
-                        materialsMap[name].qty += qty;
-                        materialsMap[name].total += total;
+                    inv.items.forEach(it => {
+                        html += `<div>${it.name || ''}: ${it.qty || 0}م3 × $${it.price || 0}</div>`;
                     });
                 }
-            });
-
-            let matHtml = '';
-            for (let mat in materialsMap) {
-                matHtml += `
-                    <tr>
-                        <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
-                        <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${materialsMap[mat].qty.toFixed(2)} م3</b></td>
-                        <td style="padding:8px; border:1px solid #ddd;"><b>${materialsMap[mat].total.toFixed(2)} $</b></td>
+                
+                html += `</td>
+                        <td><b>$${Number(inv.grandTotal || 0).toFixed(2)}</b></td>
+                        <td style="color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
+                        <td>
+                            <button class="btn-del" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#c0392b; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                        </td>
                     </tr>
                 `;
-            }
-            if (matHtml === '') {
-                matHtml = '<tr><td colspan="3" style="text-align:center; padding:10px; color:#666;">لا توجد مواد مسجلة حتى الآن</td></tr>';
-            }
-            materialsBody.innerHTML = matHtml;
+            });
+            archiveContainer.innerHTML = html;
         }
-
     }).catch((error) => {
-        console.error("خطأ في جلب البيانات من السحابة: ", error);
+        console.error("خطأ في جلب الأرشيف: ", error);
     });
 }
-
 window.deleteInvoice = function(firebaseId) {
     if (!firebaseId) return;
     
