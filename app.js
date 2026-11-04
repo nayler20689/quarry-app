@@ -967,3 +967,25 @@ window.switchTab = function(tabName) {
         loadDailyMaterialsStats();
     }
 };
+// دالة حفظ وثبيت اسم المقلع الحالي المكتوب يدوياً في ذاكرة المتصفح
+function saveQuarryNameSetting() {
+    const quarryInput = document.getElementById('quarryName');
+    if (quarryInput) {
+        const enteredName = quarryInput.value.trim();
+        if (enteredName === "") {
+            alert("الرجاء كتابة اسم المقلع أولاً!");
+            return;
+        }
+        localStorage.setItem('savedQuarryName', enteredName);
+        alert('تم حفظ وثبيت اسم المقلع (' + enteredName + ') بنجاح ولن يحتاج للتغيير بعد الآن!');
+    }
+}
+
+// استرجاع الاسم المثبت تلقائياً عند فتح الصفحة
+document.addEventListener("DOMContentLoaded", () => {
+    const savedName = localStorage.getItem('savedQuarryName');
+    const quarryInput = document.getElementById('quarryName');
+    if (savedName && quarryInput) {
+        quarryInput.value = savedName;
+    }
+});
