@@ -714,32 +714,51 @@ function loadInvoices() {
         calculateCashflow();
 
         if (archiveContainer) {
-            let html = '';
+            // إعادة بناء رأس الجدول بشكل صحيح ومنظم
+           let html = `
+    <table class="items-table" style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+        <thead>
+            <tr style="background: #8B5A2B; color: white;">
+                <th style="padding: 10px; border: 1px solid #ddd; width: 15%;">المقلع</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">رقم الدور</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">التاريخ</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 15%;">اسم الزبون</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">السائق</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 20%;">المواد والكميات</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">الإجمالي ($)</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">حالة الدفع</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">إجراء</th>
+            </tr>
+        </thead>
+        <tbody>
+`;
+
             invoicesList.forEach(inv => {
-                html += `
-                    <tr>
-                        <td><b>${inv.quarryName || 'غير مسمى'}</b></td>
-                        <td><b>#${inv.turnNumber || inv.queueNumber || 1}</b></td>
-                        <td>${inv.date || '---'}</td>
-                        <td><b>${inv.customerName || '---'}</b></td>
-                        <td>${inv.carNumber || '---'}</td>
-                        <td>`;
-                
+                let itemsSummary = '';
                 if (inv.items && Array.isArray(inv.items)) {
                     inv.items.forEach(it => {
-                        html += `<div>${it.name || ''}: ${it.qty || 0}م3 × $${it.price || 0}</div>`;
+                        itemsSummary += `<div>${it.name || ''}: ${it.qty || 0}م3 × $${it.price || 0}</div>`;
                     });
                 }
-                
-                html += `</td>
-                        <td><b>$${Number(inv.grandTotal || 0).toFixed(2)}</b></td>
-                        <td style="color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
-                        <td>
+
+                html += `
+                    <tr>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>${inv.quarryName || 'غير مسمى'}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>#${inv.turnNumber || inv.queueNumber || 1}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${inv.date || '---'}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>${inv.customerName || '---'}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${inv.carNumber || '---'}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${itemsSummary}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>$${Number(inv.grandTotal || 0).toFixed(2)}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
                             <button class="btn-del" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#c0392b; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
                         </td>
                     </tr>
                 `;
             });
+
+            html += `</tbody></table>`;
             archiveContainer.innerHTML = html;
         }
     }).catch((error) => {
