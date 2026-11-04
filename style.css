@@ -263,3 +263,38 @@ header {
         margin: 0; 
     }
 }
+/* ==========================================================================
+   تنسيقات الطباعة للطابعة الحرارية (80mm)
+   ========================================================================== */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    
+    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea *, #printReceipt, #printReceipt * { 
+        visibility: visible;
+    }
+    
+    .print-only, #invoicePrintArea, #printReceipt {
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 5px;
+    }
+
+    #printReceipt img, #invoicePrintArea img {
+        display: block !important;
+        visibility: visible !important;
+        max-width: 70px !important;
+        height: auto !important;
+        margin: 0 auto 5px auto !important;
+    }
+
+    @page {
+        size: 80mm auto;
+        margin: 0; 
+    }
+}
