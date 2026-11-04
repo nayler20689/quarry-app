@@ -957,3 +957,33 @@ document.addEventListener("DOMContentLoaded", () => {
         quarryInput.value = savedName;
     }
 });
+// دالة فحص الرسائل الجديدة والتنبيهات من المشرف العام
+function checkNewMessages() {
+    const myQuarryName = localStorage.getItem('savedQuarryName');
+    if (!myQuarryName) return;
+
+    // جلب الرسائل من التخزين المحلي
+    const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
+    
+    // عد الرسائل الواردة من المشرف العام والتي لم يتم قراءتها (أو إجمالي الرسائل الجديدة)
+    // يمكنك تعديل الشرط بحسب رغبتك (مثلاً الرسائل التي يكون مرسلها "المشرف العام" وموجهة لمقلك الحالي)
+    const unreadCount = msgs.filter(m => m.receiver === myQuarryName && m.sender === "المشرف العام" && !m.read).length;
+
+    const badge = document.getElementById('msgBadge');
+    if (badge) {
+        if (unreadCount > 0) {
+            badge.innerText = unreadCount;
+            badge.style.display = 'inline-block'; // إظهار الشارة الحمراء
+        } else {
+            badge.style.display = 'none'; // إخفاء الشارة في حال عدم وجود رسائل جديدة
+        }
+    }
+}
+
+// تشغيل دالة الفحص تلقائياً كل بضع ثوانٍ لضمان التحديث الفوري
+setInterval(checkNewMessages, 3000);
+
+// تشغيلها أيضاً فور فتح الصفحة
+document.addEventListener("DOMContentLoaded", () => {
+    checkNewMessages();
+});
