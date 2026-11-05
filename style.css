@@ -275,16 +275,16 @@ header {
         visibility: visible;
     }
     
-    .print-only, #invoicePrintArea, #printReceipt {
-        display: block !important;
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        margin: 0;
-        padding: 5px;
-    }
-
+   .print-only, #invoicePrintArea, #printReceipt {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 5px;
+    font-size: 14px; /* <-- هذا السطر مسؤول عن حجم الخط */
+}
     #printReceipt img, #invoicePrintArea img {
         display: block !important;
         visibility: visible !important;
