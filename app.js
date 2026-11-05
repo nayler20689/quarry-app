@@ -392,9 +392,13 @@ window.saveExpenseData = function() {
         return;
     }
 
+    // جلب اسم المقلع الحالي المخزن تلقائياً على جهاز المحاسب
+    const currentQuarryName = localStorage.getItem('savedQuarryName') || 'مقلع غير مسمى';
+
     const expenseData = {
         note: note,
         amount: amount,
+        quarryName: currentQuarryName, // <-- ربط المصروف باسم المقلع تلقائياً
         date: todayAr,
         isoDate: todayIso,
         time: currentTime,
