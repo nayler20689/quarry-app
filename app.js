@@ -993,7 +993,10 @@ window.switchTab = function(tabName) {
         if (dateInput && !dateInput.value) {
             dateInput.valueAsDate = new Date();
         }
-        loadDailyMaterialsStats();
+       
+    loadDailyMaterialsStats();
+loadComprehensiveMaterialsStats(); // أضف هذا السطر هنا
+
     }
 };
 // دالة حفظ وثبيت اسم المقلع الحالي المكتوب يدوياً في ذاكرة المتصفح
