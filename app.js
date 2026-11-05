@@ -1012,10 +1012,8 @@ window.switchTab = function(tabName) {
         if (dateInput && !dateInput.value) {
             dateInput.valueAsDate = new Date();
         }
-       
-    loadDailyMaterialsStats();
-loadComprehensiveMaterialsStats(); // أضف هذا السطر هنا
-
+        loadDailyMaterialsStats();
+        loadComprehensiveMaterialsStats();
     }
 };
 // دالة حفظ وثبيت اسم المقلع الحالي المكتوب يدوياً في ذاكرة المتصفح
