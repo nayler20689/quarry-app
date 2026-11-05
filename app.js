@@ -924,6 +924,63 @@ function loadDailyMaterialsStats() {
         console.error("خطأ في جلب البيانات اليومية للمواد: ", error);
     });
 }
+// دالة تحميل وحساب الإحصاء التراكمي الشامل (منذ بدء التشغيل / لكل الفترات)
+function loadComprehensiveMaterialsStats() {
+    const comprehensiveBody = document.getElementById('comprehensiveMaterialsStatsBody'); // تأكد من مطابقة اسم الـ id الخاص بجداول الجدول العلوي لديك
+    if (!comprehensiveBody) return;
+
+    invoicesCollection.get().then((querySnapshot) => {
+        let comprehensiveMap = {};
+        let totalQtyAll = 0;
+        let totalMoneyAll = 0;
+
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            // نأخذ كافة الفواتير بدون شروط تاريخ لتجميعها تراكمياً
+            if (inv.items && Array.isArray(inv.items)) {
+                inv.items.forEach(item => {
+                    let name = item.name || 'مادة عامة';
+                    let qty = Number(item.qty || 0);
+                    let total = Number(item.total || 0);
+                    
+                    if (!comprehensiveMap[name]) comprehensiveMap[name] = { qty: 0, total: 0 };
+                    comprehensiveMap[name].qty += qty;
+                    comprehensiveMap[name].total += total;
+
+                    totalQtyAll += qty;
+                    totalMoneyAll += total;
+                });
+            }
+        });
+
+        let compHtml = '';
+        for (let mat in comprehensiveMap) {
+            compHtml += `
+                <tr>
+                    <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${comprehensiveMap[mat].qty.toFixed(2)} م3</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#27ae60;"><b>${comprehensiveMap[mat].total.toFixed(2)} $</b></td>
+                </tr>
+            `;
+        }
+
+        if (compHtml === '') {
+            compHtml = `<tr><td colspan="3" style="text-align:center; padding:12px; color:#666;">لا توجد بيانات مبيعات تراكمية مسجلة بعد</td></tr>`;
+        } else {
+            compHtml += `
+                <tr style="background:#eaf2f8; font-weight:bold;">
+                    <td style="padding:10px; border:1px solid #ddd; text-align:right;">الإجمالي التراكمي الشامل:</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-size:15px;">${totalQtyAll.toFixed(2)} م3</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#27ae60; font-size:15px;">${totalMoneyAll.toFixed(2)} $</td>
+                </tr>
+            `;
+        }
+
+        comprehensiveBody.innerHTML = compHtml;
+    }).catch(error => {
+        console.error("خطأ في جلب البيانات التراكمية:", error);
+    });
+}
 
 // دالة لضمان تعيين تاريخ اليوم في محدد التاريخ عند فتح تبويب المواد المباعة
 const originalSwitchTab = window.switchTab;
