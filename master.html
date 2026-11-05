@@ -147,29 +147,42 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
-        const invoicesCollection = db.collection("invoices");
 
         let currentTargetQuarry = '';
         let pieChartInstance = null;
         let globalInvoices = [];
+        let globalExpenses = [];
 
-       function initMasterDashboard() {
-    // الاستماع الفوري واللحظي لأي تغيرات أو فواتير جديدة في سحابة Firebase
-    invoicesCollection.onSnapshot((querySnapshot) => {
-        globalInvoices = [];
-        querySnapshot.forEach((doc) => {
-            globalInvoices.push({ firebaseId: doc.id, ...doc.data() });
-        });
+        function initMasterDashboard() {
+            // الاستماع الفوري واللحظي لفواتير المقالع من سحابة Firebase
+            db.collection("invoices").onSnapshot((querySnapshot) => {
+                globalInvoices = [];
+                querySnapshot.forEach((doc) => {
+                    globalInvoices.push({ firebaseId: doc.id, ...doc.data() });
+                });
+                updateMasterDashboard();
+            }, (error) => {
+                console.error("خطأ في جلب الفواتير:", error);
+            });
 
-        // تحديث الجداول والإحصائيات والرسوم البيانية تلقائياً فوراً
-        renderTable(globalInvoices);
-        calculateStats(globalInvoices);
-        renderQuarriesTable(globalInvoices);
-        renderChart(globalInvoices);
-    }, (error) => {
-        console.error("خطأ في المزامنة السحابية الفورية:", error);
-    });
-}
+            // الاستماع الفوري واللحظي لمصاريف المقالع من سحابة Firebase
+            db.collection("expenses").onSnapshot((querySnapshot) => {
+                globalExpenses = [];
+                querySnapshot.forEach((doc) => {
+                    globalExpenses.push({ firebaseId: doc.id, ...doc.data() });
+                });
+                updateMasterDashboard();
+            }, (error) => {
+                console.log("مجموعة المصاريف غير موجودة أو فارغة بعد.");
+            });
+        }
+
+        function updateMasterDashboard() {
+            renderTable(globalInvoices);
+            calculateStats(globalInvoices, globalExpenses);
+            renderQuarriesTable(globalInvoices, globalExpenses);
+            renderChart(globalInvoices);
+        }
 
         function renderTable(invoices) {
             const tbody = document.getElementById('masterTableBody');
@@ -200,13 +213,15 @@
             });
         }
 
-        function calculateStats(invoices) {
+        function calculateStats(invoices, expenses) {
             let totalSales = 0, totalExpenses = 0;
+            
             invoices.forEach(r => {
-                const val = Number(r.grandTotal || 0);
-                totalSales += val;
-                // إذا كانت هناك مصاريف مسجلة ضمن الفاتورة أو البنود يمكن إضافتها هنا
-                // حالياً تم جعل المصاريف الافتراضية 0 لحين ربط جدول المصاريف المستقل
+                totalSales += Number(r.grandTotal || 0);
+            });
+
+            expenses.forEach(e => {
+                totalExpenses += Number(e.amount || e.grandTotal || 0);
             });
 
             const netProfit = totalSales - totalExpenses;
@@ -216,11 +231,13 @@
             document.getElementById('netProfitVal').innerText = '$' + netProfit.toFixed(2);
         }
 
-        function renderQuarriesTable(invoices) {
+        function renderQuarriesTable(invoices, expenses) {
             const tbody = document.getElementById('quarriesTableBody');
             tbody.innerHTML = '';
 
             const quarriesData = {};
+            
+            // تجميع المبيعات لكل مقلع
             invoices.forEach(r => {
                 const qName = r.quarryName || 'مقلع رئيسي';
                 if (!quarriesData[qName]) {
@@ -235,6 +252,15 @@
                 }
             });
 
+            // تجميع المصاريف لكل مقلع
+            expenses.forEach(e => {
+                const qName = e.quarryName || 'مقلع رئيسي';
+                if (!quarriesData[qName]) {
+                    quarriesData[qName] = { cashSales: 0, debtSales: 0, expenses: 0 };
+                }
+                quarriesData[qName].expenses += Number(e.amount || e.grandTotal || 0);
+            });
+
             const allKeys = Object.keys(quarriesData);
 
             if (allKeys.length === 0) {
@@ -244,13 +270,13 @@
 
             allKeys.forEach(qName => {
                 const data = quarriesData[qName];
-                const totalMove = data.cashSales + data.debtSales;
+                const totalMove = (data.cashSales + data.debtSales) - data.expenses;
                 tbody.innerHTML += `
                     <tr>
                         <td><b>${qName}</b></td>
                         <td style="color:#27ae60; font-weight:bold;">$${data.cashSales.toFixed(2)}</td>
                         <td style="color:#c0392b; font-weight:bold;">$${data.debtSales.toFixed(2)}</td>
-                        <td>$${data.expenses.toFixed(2)}</td>
+                        <td style="color:#c0392b; font-weight:bold;">$${data.expenses.toFixed(2)}</td>
                         <td><b>$${totalMove.toFixed(2)}</b></td>
                         <td>
                             <button style="background:#2980b9; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="openArchiveModal('${qName}')">عرض الأرشيف</button>
