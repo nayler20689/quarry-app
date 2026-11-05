@@ -926,7 +926,27 @@ function loadDailyMaterialsStats() {
 }
 // دالة تحميل وحساب الإحصاء التراكمي الشامل (منذ بدء التشغيل / لكل الفترات)
 function loadComprehensiveMaterialsStats() {
-    const comprehensiveBody = document.getElementById('comprehensiveMaterialsStatsBody'); // تأكد من مطابقة اسم الـ id الخاص بجداول الجدول العلوي لديك
+    // نبحث عن الجدول العلوي، وإذا لم يوجد نحدد مكانه بدقة
+    let comprehensiveBody = document.getElementById('comprehensiveMaterialsStatsBody');
+    
+    // إذا لم يكن الـ ID موجوداً في الـ html، سنقوم بإنشاء الجدول وإضافته تحت عنوان الإحصاء التراكمي تلقائياً
+    if (!comprehensiveBody) {
+        const statsTitle = document.querySelector('h3, h4'); // البحث عن عنوان الإحصاء
+        // سنبحث عن الجدول الموجود فوق جدول اليوم مباشرة أو ننشئه
+        const tables = document.querySelectorAll('table');
+        if (tables.length > 0) {
+            // الجدول الأول غالباً هو العلوي
+            let compTable = tables[0];
+            let tBody = compTable.querySelector('tbody');
+            if (!tBody) {
+                tBody = document.createElement('tbody');
+                tBody.id = 'comprehensiveMaterialsStatsBody';
+                compTable.appendChild(tBody);
+            }
+            comprehensiveBody = tBody;
+        }
+    }
+    
     if (!comprehensiveBody) return;
 
     invoicesCollection.get().then((querySnapshot) => {
@@ -936,7 +956,6 @@ function loadComprehensiveMaterialsStats() {
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
-            // نأخذ كافة الفواتير بدون شروط تاريخ لتجميعها تراكمياً
             if (inv.items && Array.isArray(inv.items)) {
                 inv.items.forEach(item => {
                     let name = item.name || 'مادة عامة';
