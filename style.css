@@ -228,49 +228,15 @@ header {
 }
 
 /* ==========================================================================
-   3. قواعد التحكم بالطباعة @media print
+   تنسيقات الطباعة للطابعة الحرارية (80mm) - موحدة ونظيفة
    ========================================================================== */
 @media print {
+    /* إخفاء عناصر الصفحة غير المرغوب فيها عند الطباعة */
     body * {
         visibility: hidden;
     }
     
-    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea *, #printReceipt, #printReceipt * { 
-        visibility: visible;
-    }
-    
-    .print-only, #invoicePrintArea, #printReceipt {
-        display: block !important;
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        margin: 0;
-        padding: 5px;
-    }
-
-    /* ضمان ظهور اللوجو والصور بشكل واضح عند الطباعة */
-    #printReceipt img, #invoicePrintArea img {
-        display: block !important;
-        visibility: visible !important;
-        max-width: 70px !important;
-        height: auto !important;
-        margin: 0 auto 5px auto !important;
-    }
-
-    @page {
-        size: 80mm auto; /* مقاس الطابعة الحرارية */
-        margin: 0; 
-    }
-}
-/* ==========================================================================
-   تنسيقات الطباعة للطابعة الحرارية (80mm)
-   ========================================================================== */
-@media print {
-    body * {
-        visibility: hidden;
-    }
-    
+    /* إظهار منطقة الوصل والإيصال فقط بكامل محتوياتها */
     .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea *, #printReceipt, #printReceipt * {
         visibility: visible;
     }
@@ -281,21 +247,22 @@ header {
         top: 0;
         width: 100%;
         margin: 0;
-        padding: 2px; /* تقليل الحشو لضمان عدم الاقتصاص */
+        padding: 0;
         background: #fff;
     }
 
-    /* الأبعاد القياسية المضبوطة للرول الحراري */
+    /* المقاس القياسي للطابعة الحرارية (عرض 80 مم وطول تلقائي ليناسب أي عدد من المواد دون اقتصاص) */
     @page {
-        size: 80mm 297mm; /* تحديد العرض والطول الأقصى لكي لا يقص الوصل */
-        margin: 2mm;      /* هامش قياسي بسيط من الأطراف لضمان ظهور كامل المحتوى */
+        size: 80mm auto;
+        margin: 0;
     }
 
-    img {
+    /* ضمان ظهور اللوجو بشكل واضح ومناسب للعرض */
+    #printReceipt img, #invoicePrintArea img, img {
         display: block !important;
         visibility: visible !important;
-        max-width: 50px !important; /* تصغير اللوجو قليلاً ليناسب العرض الضيق */
+        max-width: 60px !important;
         height: auto !important;
-        margin: 0 auto 3px auto !important;
+        margin: 0 auto 5px auto !important;
     }
 }
