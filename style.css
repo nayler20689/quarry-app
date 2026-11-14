@@ -228,41 +228,43 @@ header {
 }
 
 /* ==========================================================================
-   تنسيقات الطباعة للطابعة الحرارية (80mm) - موحدة ونظيفة
+   3. إعدادات الطباعة (حل مشكلة الصفحة البيضاء)
    ========================================================================== */
 @media print {
-    /* إخفاء عناصر الصفحة غير المرغوب فيها عند الطباعة */
+    /* إخفاء جميع العناصر الافتراضية */
     body * {
         visibility: hidden;
     }
-    
-    /* إظهار منطقة الوصل والإيصال فقط بكامل محتوياتها */
-    .print-only, .print-only *, #invoicePrintArea, #invoicePrintArea *, #printReceipt, #printReceipt * {
-        visibility: visible;
+
+    /* إظهار قسم الوصل وإلغاء الإخفاء التام (display: none) */
+    .print-only,
+    #invoicePrintArea,
+    .receipt-card {
+        display: block !important;
+        visibility: visible !important;
     }
 
-    #invoicePrintArea, #printReceipt {
+    /* إظهار كافة العناصر الداخلية للوصل */
+    .print-only *,
+    #invoicePrintArea *,
+    .receipt-card * {
+        visibility: visible !important;
+    }
+
+    /* تثبيت الوصل في أعلى الصفحة عند الطباعة */
+    .print-only,
+    #invoicePrintArea {
         position: absolute;
         left: 0;
         top: 0;
         width: 100%;
         margin: 0;
-        padding: 0;
-        background: #fff;
+        padding: 5px;
     }
 
-    /* المقاس القياسي للطابعة الحرارية (عرض 80 مم وطول تلقائي ليناسب أي عدد من المواد دون اقتصاص) */
+    /* ضبط مقاس الصفحة للطابعة الحرارية */
     @page {
-        size: 570mm auto;
-        margin:0;
-    }
-
-    /* ضمان ظهور اللوجو بشكل واضح ومناسب للعرض */
-    #printReceipt img, #invoicePrintArea img, img {
-        display: block !important;
-        visibility: visible !important;
-        max-width: 60px !important;
-        height: auto !important;
-        margin: 0 auto 5px auto !important;
+        size: 80mm auto;
+        margin: 0;
     }
 }
