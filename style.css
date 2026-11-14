@@ -231,40 +231,40 @@ header {
    3. إعدادات الطباعة (حل مشكلة الصفحة البيضاء)
    ========================================================================== */
 @media print {
-    /* إخفاء جميع العناصر الافتراضية */
+    /* إخفاء كافة عناصر الصفحة ما عدا صندوق الإيصال */
     body * {
-        visibility: hidden;
+        visibility: hidden !important;
     }
-
-    /* إظهار قسم الوصل وإلغاء الإخفاء التام (display: none) */
+    
     .print-only,
     #invoicePrintArea,
-    .receipt-card {
-        display: block !important;
-        visibility: visible !important;
-    }
-
-   /* إظهار كافة العناصر الداخلية للوصل */
-    .print-only *,
     #invoicePrintArea *,
+    .receipt-card,
     .receipt-card * {
         visibility: visible !important;
     }
-
-    /* تثبيت الوصل في أعلى الصفحة عند الطباعة */
-    .print-only,
-    #invoicePrintArea {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 72mm; /* ضبط العرض ليتناسب تماماً مع الرول الحراري */
-        margin: 0;
-        padding: 0;
+    
+    /* تثبيت الإيصال في أعلى الصفحة وبدء الطباعة */
+    #invoicePrintArea,
+    .receipt-card {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 72mm !important; /* عرض مخصص يتناسب تماماً مع رول الـ 80 ملم لمنع قص الأطراف */
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
     }
 
-    /* ضبط مقاس الصفحة للطابعة الحرارية */
+    /* منع تقطيع الصفحات وإلغاء الهوامش تماماً من البرمجة */
     @page {
-        size: auto;
-        margin: 0mm;
+        size: 80mm auto !important; /* عرض 80 ملم مع طول تلقائي مستمر حسب حجم الفاتورة لمنع تعدد الأوراق */
+        margin: 0mm !important;
+    }
+    
+    body {
+        margin: 0 !important;
+        background: white !important;
     }
 }
