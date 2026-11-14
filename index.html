@@ -109,8 +109,8 @@
                                 <option value="مواد أخرى">مواد أخرى</option>
                             </select>
                         </td>
-                        <td><input type="number" class="item-qty" value="0" min="0"></td>
-                        <td><input type="number" class="item-price" value="0" min="0"></td>
+                        <td><input type="number" class="item-qty" value="" min="0"></td>
+<td><input type="number" class="item-price" value="" min="0"></td>
                         <td><input type="text" class="item-total" value="0.00 $" readonly></td>
                         <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
                     </tr>
@@ -228,46 +228,77 @@
             </div>
         </div>
 
-       <!-- 5. قسم إحصاء المواد المباعة التراكمي واليومي -->
-        <div id="tabMaterials" class="tab-content">
-            <h3>إحصاء الكميات والمواد المباعة التراكمية واليومية</h3>
-            
-            <!-- الجدول الأول: الإحصاء التراكمي الشامل -->
-            <h4 style="color: #8B5A2B; border-bottom: 2px solid #8B5A2B; padding-bottom: 5px; margin-top: 15px;">📊 الإحصاء التراكمي الشامل (منذ بدء التشغيل)</h4>
-            <p style="color: #666; font-size: 13px;">تخزين وتجميع كلي للكميات المباعة منذ بدء تشغيل البرنامج.</p>
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th>اسم المادة</th>
-                        <th>إجمالي الكمية المباعة (م3)</th>
-                        <th>إجمالي القيمة المالية ($)</th>
-                    </tr>
-                </thead>
-<tbody id="comprehensiveMaterialsStatsBody"></tbody>
-            </table>
+       <!-- 5. قسم إحصاء المواد المباعة التراكمي واليومي والفترة -->
+<div id="tabMaterials" class="tab-content">
+    <h3>إحصاء الكميات والمواد المباعة التراكمية واليومية</h3>
+    
+    <!-- الجدول الأول: الإحصاء التراكمي الشامل -->
+    <h4 style="color: #8B5A2B; border-bottom: 2px solid #8B5A2B; padding-bottom: 5px; margin-top: 15px;">📊 الإحصاء التراكمي الشامل (منذ بدء التشغيل)</h4>
+    <p style="color: #666; font-size: 13px;">تخزين وتجميع كلي للكميات المباعة منذ بدء تشغيل البرنامج.</p>
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>اسم المادة</th>
+                <th>إجمالي الكمية المباعة (م3)</th>
+                <th>إجمالي القيمة المالية ($)</th>
+            </tr>
+        </thead>
+        <tbody id="comprehensiveMaterialsStatsBody"></tbody>
+    </table>
 
-            <!-- الجدول الثاني: إحصاء مبيعات المواد اليومي حسب التاريخ -->
-            <div style="margin-top: 35px; background: #fdf5e6; padding: 15px; border-radius: 8px; border: 1px solid #e6d2b5;">
-                <h4 style="color: #2980b9; margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 5px;">📅 إحصاء المبيعات والكميات حسب اليوم والتاريخ</h4>
-                
-                <div style="margin: 15px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <label><strong>اختر التاريخ لعرض مبيعاته:</strong></label>
-                    <input type="date" id="dailyMaterialsDateFilter" onchange="loadDailyMaterialsStats()" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-weight: bold; color: #2c3e50;">
-                </div>
+    <!-- الجدول الثاني: إحصاء مبيعات المواد اليومي حسب التاريخ -->
+    <div style="margin-top: 35px; background: #fdf5e6; padding: 15px; border-radius: 8px; border: 1px solid #e6d2b5;">
+        <h4 style="color: #2980b9; margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 5px;">📅 إحصاء المبيعات والكميات حسب اليوم والتاريخ</h4>
+        
+        <div style="margin: 15px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <label><strong>اختر التاريخ لعرض مبيعاته:</strong></label>
+            <input type="date" id="dailyMaterialsDateFilter" onchange="loadDailyMaterialsStats()" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-weight: bold; color: #2c3e50;">
+        </div>
 
-                <table class="items-table" style="background: #fff;">
-                    <thead>
-                        <tr style="background: #2980b9;">
-                            <th>اسم المادة</th>
-                            <th>الكمية المباعة اليوم (م3)</th>
-                            <th>قيمة مبيعات اليوم ($)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dailyMaterialsStatsBody"></tbody>
-                </table>
+        <table class="items-table" style="background: #fff;">
+            <thead>
+                <tr style="background: #2980b9;">
+                    <th>اسم المادة</th>
+                    <th>الكمية المباعة اليوم (م3)</th>
+                    <th>قيمة مبيعات اليوم ($)</th>
+                </tr>
+            </thead>
+            <tbody id="dailyMaterialsStatsBody"></tbody>
+        </table>
+    </div>
+
+    <!-- الجدول الثالث (الجديد): إحصاء المبيعات خلال فترة محددة (من تاريخ إلى تاريخ) -->
+    <div style="margin-top: 35px; background: #eef7f2; padding: 15px; border-radius: 8px; border: 1px solid #b8dec9;">
+        <h4 style="color: #27ae60; margin-top: 0; border-bottom: 2px solid #27ae60; padding-bottom: 5px;">🗓️ إحصاء المبيعات والكميات خلال فترة محددة</h4>
+        
+        <div style="margin: 15px 0; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+            <div>
+                <label><strong>من تاريخ:</strong></label>
+                <input type="date" id="rangeStartDate" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-weight: bold; color: #2c3e50;">
             </div>
+            <div>
+                <label><strong>إلى تاريخ:</strong></label>
+                <input type="date" id="rangeEndDate" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; font-weight: bold; color: #2c3e50;">
+            </div>
+            <button type="button" onclick="loadRangeMaterialsStats()" class="btn-save" style="background: #27ae60; padding: 9px 18px;">🔍 عرض الإحصاء</button>
         </div>
-        </div>
+
+        <table class="items-table" style="background: #fff;">
+            <thead>
+                <tr>
+                    <th style="background: #27ae60;">اسم المادة</th>
+                    <th style="background: #27ae60;">إجمالي الكمية خلال الفترة (م3)</th>
+                    <th style="background: #27ae60;">إجمالي القيمة خلال الفترة ($)</th>
+                </tr>
+            </thead>
+            <tbody id="rangeMaterialsStatsBody">
+                <tr>
+                    <td colspan="3" style="color: #777;">يرجى تحديد تاريخ البداية والنهاية ثم الضغط على "عرض الإحصاء"</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
 
         <!-- 6. قسم الأرشيف الكامل -->
         <div id="tabArchive" class="tab-content">
