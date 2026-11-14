@@ -231,11 +231,12 @@ header {
    3. إعدادات الطباعة (حل مشكلة الصفحة البيضاء)
    ========================================================================== */
 @media print {
-    /* إخفاء كافة عناصر الصفحة ما عدا صندوق الإيصال */
+    /* إخفاء جميع عناصر الصفحة */
     body * {
         visibility: hidden !important;
     }
-    
+
+    /* إظهار الوصل ومحتوياته فقط */
     .print-only,
     #invoicePrintArea,
     #invoicePrintArea *,
@@ -243,28 +244,32 @@ header {
     .receipt-card * {
         visibility: visible !important;
     }
-    
-    /* تثبيت الإيصال في أعلى الصفحة وبدء الطباعة */
+
+    /* ضبط العرض ليطابق 72.1mm بالضبط */
     #invoicePrintArea,
     .receipt-card {
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
-        width: 72mm !important; /* عرض مخصص يتناسب تماماً مع رول الـ 80 ملم لمنع قص الأطراف */
-        max-width: 100% !important;
+        width: 72mm !important;
+        max-width: 72mm !important;
         margin: 0 !important;
-        padding: 0 !important;
+        padding: 1mm !important;
+        box-sizing: border-box !important;
         background: white !important;
     }
 
-    /* منع تقطيع الصفحات وإلغاء الهوامش تماماً من البرمجة */
+    /* مطابقة مقاس الخيار الثاني في القائمة */
     @page {
-        size: 80mm auto !important; /* عرض 80 ملم مع طول تلقائي مستمر حسب حجم الفاتورة لمنع تعدد الأوراق */
+        size: 80mm 210mm !important;
         margin: 0mm !important;
     }
-    
-    body {
+
+    html, body {
+        width: 72mm !important;
+        height: auto !important;
         margin: 0 !important;
+        padding: 0 !important;
         background: white !important;
     }
 }
