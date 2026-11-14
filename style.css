@@ -244,7 +244,7 @@ header {
         visibility: visible !important;
     }
 
-    /* إظهار كافة العناصر الداخلية للوصل */
+   /* إظهار كافة العناصر الداخلية للوصل */
     .print-only *,
     #invoicePrintArea *,
     .receipt-card * {
@@ -257,14 +257,14 @@ header {
         position: absolute;
         left: 0;
         top: 0;
-        width: 100%;
+        width: 72mm; /* ضبط العرض ليتناسب تماماً مع الرول الحراري */
         margin: 0;
-        padding: 5px;
+        padding: 0;
     }
 
     /* ضبط مقاس الصفحة للطابعة الحرارية */
     @page {
-        size: 80mm auto;
-        margin: 0;
+        size: auto;
+        margin: 0mm;
     }
 }
