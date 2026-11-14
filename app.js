@@ -844,8 +844,8 @@ function resetForm() {
                     <option value="مواد أخرى">مواد أخرى</option>
                 </select>
             </td>
-            <td><input type="number" class="item-qty" value="0" min="0"></td>
-            <td><input type="number" class="item-price" value="0" min="0"></td>
+            <td><input type="number" class="item-qty" value="" min="0"></td>
+<td><input type="number" class="item-price" value="" min="0"></td>
             <td><input type="text" class="item-total" value="0.00 $" readonly></td>
             <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
         </tr>
@@ -998,6 +998,97 @@ function loadComprehensiveMaterialsStats() {
         comprehensiveBody.innerHTML = compHtml;
     }).catch(error => {
         console.error("خطأ في جلب البيانات التراكمية:", error);
+    });
+}
+// دالة تحميل وحساب إحصاء المواد المباعة خلال فترة محددة (من تاريخ إلى تاريخ)
+function loadRangeMaterialsStats() {
+    const startDateInput = document.getElementById('rangeStartDate').value;
+    const endDateInput = document.getElementById('rangeEndDate').value;
+    const rangeBody = document.getElementById('rangeMaterialsStatsBody');
+
+    if (!rangeBody) return;
+
+    // التحقق من إدخال التواريخ
+    if (!startDateInput || !endDateInput) {
+        alert('الرجاء تحديد تاريخ البداية وتاريخ النهاية معاً!');
+        return;
+    }
+
+    // تحويل التواريخ المدخلة إلى صيغة مقارنة (مقارنة النصوص YYYY-MM-DD تعمل بكفاءة عالية)
+    if (startDateInput > endDateInput) {
+        alert('تاريخ البداية يجب أن يكون قبل تاريخ النهاية أو مساوياً له!');
+        return;
+    }
+
+    rangeBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:15px; color:#666;">جاري تحميل وعرض البيانات...</td></tr>`;
+
+    invoicesCollection.get().then((querySnapshot) => {
+        let rangeMap = {};
+        let totalQtyRange = 0;
+        let totalMoneyRange = 0;
+        let countMatched = 0;
+
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            
+            // استخراج التاريخ من الفاتورة (تأكد أن حقل التاريخ في الفاتورة لديك يخزن بصيغة YYYY-MM-DD مثل inv.date أو inv.invoiceDate)
+            // إذا كان اسم الحقل مختلفاً لديك (مثلاً inv.createdAt أو inv.date)، استبدله هنا:
+            let invDate = inv.date || inv.invoiceDate || '';
+            
+            // إذا كان التاريخ مخزناً كـ Firebase Timestamp، نقوم بتحويله لـ string
+            if (invDate && typeof invDate.toDate === 'function') {
+                invDate = invDate.toDate().toISOString().split('T')[0];
+            } else if (invDate && invDate.includes('T')) {
+                invDate = invDate.split('T')[0];
+            }
+
+            // فحص ما إذا كانت الفاتورة تقع ضمن النمط (من تاريخ إلى تاريخ شاملة)
+            if (invDate && invDate >= startDateInput && invDate <= endDateInput) {
+                if (inv.items && Array.isArray(inv.items)) {
+                    countMatched++;
+                    inv.items.forEach(item => {
+                        let name = item.name || 'مادة عامة';
+                        let qty = Number(item.qty || 0);
+                        let total = Number(item.total || 0);
+
+                        if (!rangeMap[name]) rangeMap[name] = { qty: 0, total: 0 };
+                        rangeMap[name].qty += qty;
+                        rangeMap[name].total += total;
+
+                        totalQtyRange += qty;
+                        totalMoneyRange += total;
+                    });
+                }
+            }
+        });
+
+        let rangeHtml = '';
+        for (let mat in rangeMap) {
+            rangeHtml += `
+                <tr>
+                    <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#27ae60;"><b>${rangeMap[mat].qty.toFixed(2)} م3</b></td>
+                    <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${rangeMap[mat].total.toFixed(2)} $</b></td>
+                </tr>
+            `;
+        }
+
+        if (rangeHtml === '') {
+            rangeHtml = `<tr><td colspan="3" style="text-align:center; padding:12px; color:#e67e22;"><b>لا توجد مبيعات مسجلة في هذه الفترة المحددة (${startDateInput} إلى ${endDateInput})</b></td></tr>`;
+        } else {
+            rangeHtml += `
+                <tr style="background:#eafaf1; font-weight:bold;">
+                    <td style="padding:10px; border:1px solid #ddd; text-align:right;">إجمالي الفترة (${startDateInput} إلى ${endDateInput}):</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#27ae60; font-size:15px;">${totalQtyRange.toFixed(2)} م3</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#2980b9; font-size:15px;">${totalMoneyRange.toFixed(2)} $</td>
+                </tr>
+            `;
+        }
+
+        rangeBody.innerHTML = rangeHtml;
+    }).catch(error => {
+        console.error("خطأ في جلب بيانات الفترة:", error);
+        rangeBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:12px; color:red;">حدث خطأ أثناء جلب البيانات.</td></tr>`;
     });
 }
 
