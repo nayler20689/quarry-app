@@ -86,8 +86,8 @@ document.getElementById('btnAddRow').addEventListener('click', function() {
                 <option value="مواد أخرى">مواد أخرى</option>
             </select>
         </td>
-        <td><input type="number" class="item-qty" value="0" min="0"></td>
-        <td><input type="number" class="item-price" value="0" min="0"></td>
+       <td><input type="number" class="item-qty" value="" min="0" placeholder=""></td>
+<td><input type="number" class="item-price" value="" min="0" placeholder=""></td>
         <td><input type="text" class="item-total" value="0.00 $" readonly></td>
         <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
     `;
@@ -155,12 +155,11 @@ function generateQueueNumber() {
     return `A-${queueNumber}`;
 }
 
-// حفظ الفاتورة والطباعة وإضافة الإيصال للقائمة (بحد أقصى 5)
+// حفظ الفاتورة والطباعة الفورية (متوافق مع حماية المتصفح)
 document.getElementById('btnSaveAndPrint').addEventListener('click', function() {
     const customerName = document.getElementById('customerName').value.trim();
     const carNumber = document.getElementById('carNumber').value.trim();
     const paymentStatus = document.getElementById('paymentStatus').value;
-    const quarryName = document.getElementById('quarryName').value.trim() || 'مقلع أبناء عبد الغفور الصياح';
 
     if (!customerName) {
         alert("يرجى إدخال اسم الشركة أولاً!");
@@ -180,13 +179,20 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
     const grandTotalText = document.getElementById('grandTotal').innerText;
     const numericGrandTotal = parseFloat(grandTotalText.replace('$', '')) || 0;
 
+    // تعريف المتغيرات أولاً
     const currentTurn = generateQueueNumber(); 
     const currentQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 1;
+
+const quarryName = localStorage.getItem('savedQuarryName') || document.getElementById('quarryName').value.trim() || 'مقلع غير مسمى';
+    const quarryAddress = document.getElementById('quarryAddress').value.trim() || localStorage.getItem('savedQuarryAddress') || '---';
+    const quarryPhone = document.getElementById('quarryPhone').value.trim() || localStorage.getItem('savedQuarryPhone') || '---';
 
     const newInvoice = {
         queueNumber: currentQueueNum, 
         turnNumber: currentTurn,      
         quarryName,
+        quarryAddress,
+        quarryPhone,
         date: new Date().toLocaleDateString('ar-SY'),
         isoDate: new Date().toLocaleDateString('en-CA'), 
         customerName,
@@ -196,18 +202,15 @@ document.getElementById('btnSaveAndPrint').addEventListener('click', function() 
         grandTotal: numericGrandTotal
     };
 
+    // 1. تشغيل الطباعة والمعاينة فوراً
+    printInvoiceData(newInvoice);
+
+    // 2. الحفظ في السحابة والقائمة في الخلفية
     invoicesCollection.add(newInvoice)
     .then(() => {
         console.log("تم حفظ الفاتورة في الأرشيف بنجاح!");
         loadInvoices(); 
-        
-        // إضافة الفاتورة لقائمة آخر الإيصالات (بحد أقصى 5 مع الحذف التلقائي للأقدم)
         addRecentReceipt(newInvoice);
-        
-        const wantPrint = confirm("تم حفظ الفاتورة بنجاح وإضافتها لقائمة آخر الإيصالات!\n\nهل تريد طباعة الوصل الآن؟");
-        if (wantPrint) {
-            printInvoiceData(newInvoice);
-        }
     })
     .catch((error) => {
         console.error("خطأ في الاتصال بالسحابة: ", error);
@@ -276,7 +279,15 @@ window.deleteRecentReceipt = function(index) {
 };
 
 function printInvoiceData(inv) {
-    if(document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = inv.quarryName || 'مقلع أبناء عبد الغفور الصياح';
+    if(document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = inv.quarryName || 'مقلع غير مسمى';
+    
+    // تحديث العنوان والهاتف في الوصل المطبوع
+    if(document.getElementById('pQuarryAddressPhone')) {
+        const addr = inv.quarryAddress || localStorage.getItem('savedQuarryAddress') || '---';
+        const phn = inv.quarryPhone || localStorage.getItem('savedQuarryPhone') || '---';
+        document.getElementById('pQuarryAddressPhone').innerText = `العنوان: ${addr} | هاتف: ${phn}`;
+    }
+
     if(document.getElementById('pDate')) document.getElementById('pDate').innerText = 'التاريخ: ' + (inv.date || '');
     if(document.getElementById('pQueueNum')) document.getElementById('pQueueNum').innerText = inv.turnNumber || ('A-' + (inv.queueNumber || 1));
     if(document.getElementById('pCustomer')) document.getElementById('pCustomer').innerText = inv.customerName || '';
@@ -284,6 +295,7 @@ function printInvoiceData(inv) {
     if(document.getElementById('pPayment')) document.getElementById('pPayment').innerText = inv.paymentStatus || '';
 
     const container = document.getElementById('pItemsTableContainer');
+    // ... وباقي الكود القديم يبقى كما هو في الأسفل
     if (container && inv.items) {
         container.innerHTML = '';
         if (inv.items.length >= 2) {
@@ -319,9 +331,11 @@ function printInvoiceData(inv) {
         }
     }
 
+    // إجبار المتصفح على فتح نافذة الطباعة بسلاسة ودون تعليق
     setTimeout(() => {
+        window.focus();
         window.print();
-    }, 200);
+    }, 300);
 }
 
 // معالجة وحفظ دفعات الديون المحصلة
@@ -335,7 +349,7 @@ document.addEventListener("DOMContentLoaded", () => {
     renderRecentReceipts();
     loadExpensesTable(); // تحميل جدول المصاريف عند البدء
 
-    const btnSaveRepayment = document.getElementById('btnSaveRepayment');
+   const btnSaveRepayment = document.getElementById('btnSaveRepayment');
     if (btnSaveRepayment) {
         btnSaveRepayment.addEventListener('click', function() {
             const customerNameInput = document.getElementById('repaidCustomerName');
@@ -352,11 +366,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            // تعريف اسم المقلع الحالي لضمان العزل
+            const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+
             const repaymentData = {
                 customerName: customerName,
                 amount: amount,
                 date: dateInput || todayIso,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                quarryName: currentQuarry
             };
 
             repaymentsCollection.add(repaymentData)
@@ -374,8 +392,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         });
     }
-});
-
+    });
 // حفظ المصاريف / الواردات وتحديث الجدول والصندوق
 window.saveExpenseData = function() {
     const noteInput = document.getElementById('expenseNote') || document.querySelector('#tabExpenses input[type="text"]');
@@ -424,8 +441,11 @@ function loadExpensesTable() {
     const expensesContainer = document.getElementById('expensesListTable');
     if (!expensesContainer) return;
 
-    expensesCollection.get().then((querySnapshot) => {
-        let expensesList = [];
+const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!currentQuarry) return;
+
+    expensesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
+    let expensesList = [];
         querySnapshot.forEach((doc) => {
             expensesList.push({ id: doc.id, ...doc.data() });
         });
@@ -505,9 +525,15 @@ function loadDebtsTable() {
     const debtsContainer = document.getElementById('debtsListTable');
     const repaidContainer = document.getElementById('repaidDebtsListTable');
     if (!debtsContainer) return;
+const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!currentQuarry) return;
 
-    Promise.all([invoicesCollection.get(), repaymentsCollection.get()]).then(([invSnap, repSnap]) => {
-        let customersDebtMap = {};
+    Promise.all([
+        invoicesCollection.where('quarryName', '==', currentQuarry).get(), 
+        repaymentsCollection.where('quarryName', '==', currentQuarry).get()
+    ]).then(([invSnap, repSnap]) => {
+
+    let customersDebtMap = {};
         let repaymentsList = [];
 
         invSnap.forEach(doc => {
@@ -623,14 +649,21 @@ window.filterDebts = function() {
 function calculateCashflow() {
     const dateFilterEl = document.getElementById('cashDateFilter');
     let selectedDateStr = '';
-    
+
     if (dateFilterEl && dateFilterEl.value) {
-        selectedDateStr = dateFilterEl.value; 
+        selectedDateStr = dateFilterEl.value;
     } else {
         selectedDateStr = new Date().toLocaleDateString('en-CA');
     }
 
-    Promise.all([invoicesCollection.get(), repaymentsCollection.get(), expensesCollection.get()]).then(([querySnapshot, repSnapshot, expSnapshot]) => {
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!currentQuarry) return;
+
+    Promise.all([
+        invoicesCollection.where('quarryName', '==', currentQuarry).get(), 
+        repaymentsCollection.where('quarryName', '==', currentQuarry).get(), 
+        expensesCollection.where('quarryName', '==', currentQuarry).get()
+    ]).then(([querySnapshot, repSnap, expSnap]) => {
         let totalCashSales = 0;
         let totalNewDebts = 0;
         let totalRepaidDebts = 0;
@@ -648,14 +681,15 @@ function calculateCashflow() {
             }
         });
 
-        repSnapshot.forEach((doc) => {
+        // تم تصحيح اسم المتغير هنا إلى repSnap بدلاً من repSnapshot
+        repSnap.forEach((doc) => {
             const rep = doc.data();
             if (rep.date === selectedDateStr) {
                 totalRepaidDebts += Number(rep.amount || 0);
             }
         });
 
-        expSnapshot.forEach((doc) => {
+        expSnap.forEach((doc) => {
             const exp = doc.data();
             if (exp.isoDate === selectedDateStr || exp.date === selectedDateStr) {
                 totalExpenses += Number(exp.amount || 0);
@@ -1107,27 +1141,33 @@ window.switchTab = function(tabName) {
         loadComprehensiveMaterialsStats();
     }
 };
-// دالة حفظ وثبيت اسم المقلع الحالي المكتوب يدوياً في ذاكرة المتصفح
+// حفظ وتثبيت هوية المقلع الكاملة (الاسم + العنوان + الهاتف)
 function saveQuarryNameSetting() {
-    const quarryInput = document.getElementById('quarryName');
-    if (quarryInput) {
-        const enteredName = quarryInput.value.trim();
-        if (enteredName === "") {
-            alert("الرجاء كتابة اسم المقلع أولاً!");
-            return;
-        }
-        localStorage.setItem('savedQuarryName', enteredName);
-        alert('تم حفظ وثبيت اسم المقلع (' + enteredName + ') بنجاح ولن يحتاج للتغيير بعد الآن!');
+    const nameVal = document.getElementById('quarryName').value.trim();
+    const addressVal = document.getElementById('quarryAddress').value.trim();
+    const phoneVal = document.getElementById('quarryPhone').value.trim();
+
+    if (nameVal === "") {
+        alert("الرجاء كتابة اسم المقلع أولاً!");
+        return;
     }
+
+    localStorage.setItem('savedQuarryName', nameVal);
+    localStorage.setItem('savedQuarryAddress', addressVal || 'غير محدد');
+    localStorage.setItem('savedQuarryPhone', phoneVal || 'غير محدد');
+
+    alert(`تم حفظ وتثبيت هوية (${nameVal}) بنجاح!`);
 }
 
-// استرجاع الاسم المثبت تلقائياً عند فتح الصفحة
+// استرجاع الهوية الكاملة تلقائياً عند فتح الصفحة
 document.addEventListener("DOMContentLoaded", () => {
     const savedName = localStorage.getItem('savedQuarryName');
-    const quarryInput = document.getElementById('quarryName');
-    if (savedName && quarryInput) {
-        quarryInput.value = savedName;
-    }
+    const savedAddress = localStorage.getItem('savedQuarryAddress');
+    const savedPhone = localStorage.getItem('savedQuarryPhone');
+
+    if (savedName && document.getElementById('quarryName')) document.getElementById('quarryName').value = savedName;
+    if (savedAddress && document.getElementById('quarryAddress')) document.getElementById('quarryAddress').value = savedAddress;
+    if (savedPhone && document.getElementById('quarryPhone')) document.getElementById('quarryPhone').value = savedPhone;
 });
 // دالة فحص الرسائل الجديدة والتنبيهات من المشرف العام
 function checkNewMessages() {
