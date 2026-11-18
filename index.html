@@ -34,18 +34,28 @@
             </div>
         </header>
 
-     <!-- تحديد اسم المقلع الحالي -->
-    <div style="background: #fdf5e6; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #e6d2b5; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <label><strong>اسم المقلع الحالي:</strong></label>
-        
-        <!-- حقل نصي حر ليكتب المحاسب اسم مقلعه الحقيقي بنفسه -->
-        <input type="text" id="quarryName" placeholder="اكتب اسم المقلع هنا..." style="flex: 1; min-width: 200px; padding: 8px; border-radius: 4px; border: 1px solid #8B5A2B; font-weight: bold; background: #fff;">
-
-        <!-- زر الحفظ والتثبيت التلقائي -->
-        <button type="button" onclick="saveQuarryNameSetting()" style="background: #27ae60; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; white-space: nowrap;">
-            💾 حفظ وثبيت
-        </button>
-        <span style="font-size: 11px; color: #666; width: 100%;">يظهر في الإيصال وعلى لوحة المشرف (اكتب اسم مقلعمك واضغط حفظ مرة واحدة)</span>
+    <!-- تحديد هوية وبيانات المقلع الحالي -->
+    <div style="background: #fdf5e6; padding: 12px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #e6d2b5; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 180px;">
+                <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 3px;">اسم المقلع:</label>
+                <input type="text" id="quarryName" placeholder="مثال: مقلع المازن" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #8B5A2B; font-weight: bold; background: #fff; box-sizing: border-box;">
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 3px;">العنوان:</label>
+                <input type="text" id="quarryAddress" placeholder="مثال: إدلب - خان السبل" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #8B5A2B; background: #fff; box-sizing: border-box;">
+            </div>
+            <div style="flex: 1; min-width: 150px;">
+                <label style="font-size: 12px; font-weight: bold; display: block; margin-bottom: 3px;">رقم الهاتف:</label>
+                <input type="text" id="quarryPhone" placeholder="مثال: 0987654321" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #8B5A2B; background: #fff; box-sizing: border-box;">
+            </div>
+            <div style="align-self: flex-end;">
+                <button type="button" onclick="saveQuarryNameSetting()" style="background: #27ae60; color: white; border: none; padding: 9px 18px; border-radius: 4px; cursor: pointer; font-weight: bold; white-space: nowrap;">
+                    💾 حفظ وتثبيت الهوية
+                </button>
+            </div>
+        </div>
+        <span style="font-size: 11px; color: #666;">تظهر هذه البيانات تلقائياً في رأس كل إيصال مطبوع وتُرسل لصفحة المشرف العام.</span>
     </div>
         <!-- التبويبات الشاملة -->
         <div class="tabs-header">
@@ -335,7 +345,7 @@
                     <td colspan="2" class="sub-header bold bg-gray">جميع مواد البناء</td>
                 </tr>
                 <tr>
-                    <td colspan="2" style="font-size: 10px; padding: 4px;">العنوان: إدلب - خان السبل - وادي اللفة | هاتف: +352681578138[cite: 5]</td>
+<td colspan="2" id="pQuarryAddressPhone" style="font-size: 10px; padding: 4px;">العنوان: --- | هاتف: ---</td>
                 </tr>
                 <tr>
                     <td colspan="2" id="pDate" class="bg-gray" style="font-size: 11px;">التاريخ: </td>
