@@ -228,39 +228,51 @@ header {
 }
 
 /* ==========================================================================
-   3. إعدادات الطباعة (حل مشكلة الصفحة البيضاء)
+   3. إعدادات الطباعة الحرارية (80mm) - متوافق تماماً مع index.html
    ========================================================================== */
 @media print {
-    /* إخفاء جميع عناصر الصفحة */
-    body * {
-        visibility: hidden !important;
+    /* 1. إخفاء الشاشة الرئيسية للتطبيق تماماً دون التأثير على الوصل */
+    .main-screen,
+    .container {
+        display: none !important;
     }
 
-    /* إظهار الوصل ومحتوياته فقط */
-    .print-only,
-    #invoicePrintArea,
-    #invoicePrintArea *,
-    .receipt-card,
-    .receipt-card * {
+    /* 2. إظهار حاوية الوصل والبطاقة بشكل سليم */
+    #printReceipt,
+    .print-only {
+        display: block !important;
         visibility: visible !important;
-    }
-
-    /* ضبط العرض ليطابق 72.1mm بالضبط */
-    #invoicePrintArea,
-    .receipt-card {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
+        position: relative !important;
         width: 72mm !important;
         max-width: 72mm !important;
-        margin: 0 !important;
-        padding: 1mm !important;
+        margin: 0 auto !important;
+        padding: 0 !important;
+    }
+
+    .receipt-card {
+        display: block !important;
+        visibility: visible !important;
+        width: 100% !important;
+        padding: 2mm !important;
         box-sizing: border-box !important;
         background: white !important;
     }
 
-    /* مطابقة مقاس الخيار الثاني في القائمة */
-     /* طول مرن يتوقف فور انتهاء محتوى الوصل */
+    /* 3. الحفاظ على تنسيق الجداول داخل الوصل كما هي */
+    .excel-receipt-table {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+    .excel-receipt-table tr {
+        display: table-row !important;
+    }
+    .excel-receipt-table td,
+    .excel-receipt-table th {
+        display: table-cell !important;
+    }
+
+    /* 4. ضبط مقاس الورقة لمنع سحب الرول المستمر */
     @page {
         size: 80mm auto !important;
         margin: 0mm !important;
@@ -268,11 +280,10 @@ header {
 
     html, body {
         width: 72mm !important;
-        height: fit-content !important;
+        height: auto !important;
         min-height: 0 !important;
         margin: 0 !important;
         padding: 0 !important;
         background: white !important;
-        overflow: hidden !important;
     }
 }
