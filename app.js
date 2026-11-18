@@ -902,9 +902,14 @@ function loadDailyMaterialsStats() {
     const dailyBody = document.getElementById('dailyMaterialsStatsBody');
     if (!dailyBody) return;
 
+    // جلب اسم المقلع الحالي لضمان العزل التام
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!currentQuarry) return;
+
     let selectedDateStr = dateFilterEl && dateFilterEl.value ? dateFilterEl.value : new Date().toLocaleDateString('en-CA');
 
-    invoicesCollection.get().then((querySnapshot) => {
+    // إضافة شرط العزل `.where('quarryName', '==', currentQuarry)` لجلب فواتير المقلع الحالي فقط
+    invoicesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
         let dailyMaterialsMap = {};
         let dayTotalQty = 0;
         let dayTotalMoney = 0;
@@ -929,9 +934,9 @@ function loadDailyMaterialsStats() {
             }
         });
 
-        let matHtml = '';
+        let dailyHtml = '';
         for (let mat in dailyMaterialsMap) {
-            matHtml += `
+            dailyHtml += `
                 <tr>
                     <td style="padding:8px; border:1px solid #ddd;"><b>${mat}</b></td>
                     <td style="padding:8px; border:1px solid #ddd; color:#2980b9;"><b>${dailyMaterialsMap[mat].qty.toFixed(2)} م3</b></td>
@@ -940,11 +945,11 @@ function loadDailyMaterialsStats() {
             `;
         }
 
-        if (matHtml === '') {
-            matHtml = `<tr><td colspan="3" style="text-align:center; padding:12px; color:#666;">لا توجد مبيعات مواد مسجلة بتاريخ (${selectedDateStr})</td></tr>`;
+        if (dailyHtml === '') {
+            dailyHtml = `<tr><td colspan="3" style="text-align:center; padding:12px; color:#666;">لا توجد بيانات مبيعات مسجلة لهذا التاريخ</td></tr>`;
         } else {
-            matHtml += `
-                <tr style="background:#e8f8f5; font-weight:bold;">
+            dailyHtml += `
+                <tr style="background:#eaf2f8; font-weight:bold;">
                     <td style="padding:10px; border:1px solid #ddd; text-align:right;">الإجمالي اليومي الكلي:</td>
                     <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-size:15px;">${dayTotalQty.toFixed(2)} م3</td>
                     <td style="padding:10px; border:1px solid #ddd; color:#27ae60; font-size:15px;">${dayTotalMoney.toFixed(2)} $</td>
@@ -952,10 +957,9 @@ function loadDailyMaterialsStats() {
             `;
         }
 
-        dailyBody.innerHTML = matHtml;
-
-    }).catch((error) => {
-        console.error("خطأ في جلب البيانات اليومية للمواد: ", error);
+        dailyBody.innerHTML = dailyHtml;
+    }).catch(error => {
+        console.error("خطأ في جلب بيانات إحصاء اليوم:", error);
     });
 }
 // دالة تحميل وحساب الإحصاء التراكمي الشامل (منذ بدء التشغيل / لكل الفترات)
