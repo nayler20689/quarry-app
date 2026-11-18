@@ -960,16 +960,12 @@ function loadDailyMaterialsStats() {
 }
 // دالة تحميل وحساب الإحصاء التراكمي الشامل (منذ بدء التشغيل / لكل الفترات)
 function loadComprehensiveMaterialsStats() {
-    // نبحث عن الجدول العلوي، وإذا لم يوجد نحدد مكانه بدقة
     let comprehensiveBody = document.getElementById('comprehensiveMaterialsStatsBody');
     
-    // إذا لم يكن الـ ID موجوداً في الـ html، سنقوم بإنشاء الجدول وإضافته تحت عنوان الإحصاء التراكمي تلقائياً
     if (!comprehensiveBody) {
-        const statsTitle = document.querySelector('h3, h4'); // البحث عن عنوان الإحصاء
-        // سنبحث عن الجدول الموجود فوق جدول اليوم مباشرة أو ننشئه
+        const statsTitle = document.querySelector('h3, h4'); 
         const tables = document.querySelectorAll('table');
         if (tables.length > 0) {
-            // الجدول الأول غالباً هو العلوي
             let compTable = tables[0];
             let tBody = compTable.querySelector('tbody');
             if (!tBody) {
@@ -983,7 +979,12 @@ function loadComprehensiveMaterialsStats() {
     
     if (!comprehensiveBody) return;
 
-    invoicesCollection.get().then((querySnapshot) => {
+    // جلب اسم المقلع الحالي لضمان العزل التام وعدم تداخل البيانات بين المقالع
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!currentQuarry) return;
+
+    // إضافة شرط العزل `.where('quarryName', '==', currentQuarry)` لجلب مبيعات المقلع الحالي فقط
+    invoicesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
         let comprehensiveMap = {};
         let totalQtyAll = 0;
         let totalMoneyAll = 0;
