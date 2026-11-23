@@ -520,20 +520,36 @@ window.filterExpenses = function() {
         }
     });
 };
+// مسح سجل المواد الظاهرة لزبون معين يدوياً من قبل المحاسب
+window.clearCustomerDebtMaterials = function(customerName) {
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    const storageKey = `clearedDebtMaterials_${currentQuarry}`;
+    let clearedList = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    if (!clearedList.includes(customerName)) {
+        clearedList.push(customerName);
+        localStorage.setItem(storageKey, JSON.stringify(clearedList));
+    }
+    loadDebtsTable();
+};
 
 function loadDebtsTable() {
     const debtsContainer = document.getElementById('debtsListTable');
     const repaidContainer = document.getElementById('repaidDebtsListTable');
     if (!debtsContainer) return;
-const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
     if (!currentQuarry) return;
+
+    const clearedKey = `clearedDebtMaterials_${currentQuarry}`;
+    let clearedCustomers = JSON.parse(localStorage.getItem(clearedKey) || '[]');
 
     Promise.all([
         invoicesCollection.where('quarryName', '==', currentQuarry).get(), 
         repaymentsCollection.where('quarryName', '==', currentQuarry).get()
     ]).then(([invSnap, repSnap]) => {
 
-    let customersDebtMap = {};
+        let customersDebtMap = {};
+        let customersMaterialsMap = {};
         let repaymentsList = [];
 
         invSnap.forEach(doc => {
@@ -542,6 +558,18 @@ const currentQuarry = localStorage.getItem('savedQuarryName') || '';
                 let name = inv.customerName.trim();
                 let amount = Number(inv.grandTotal || 0);
                 customersDebtMap[name] = (customersDebtMap[name] || 0) + amount;
+
+                if (!customersMaterialsMap[name]) {
+                    customersMaterialsMap[name] = {};
+                }
+
+                if (inv.items && Array.isArray(inv.items)) {
+                    inv.items.forEach(item => {
+                        let matName = (item.name || 'مادة عامة').trim();
+                        let qty = Number(item.qty || 0);
+                        customersMaterialsMap[name][matName] = (customersMaterialsMap[name][matName] || 0) + qty;
+                    });
+                }
             }
         });
 
@@ -596,28 +624,62 @@ const currentQuarry = localStorage.getItem('savedQuarryName') || '';
                     <tr style="background:#f2f2f2;">
                         <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الزبون / الشركة</th>
                         <th style="padding:10px; border:1px solid #ddd; text-align:right;">إجمالي الدين المتبقي ($)</th>
+                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المواد والكميات المسحوبة بالدين</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
-        let hasDebt = false;
+let hasDebt = false;
+        let totalGeneralDebt = 0;
         for (let cust in customersDebtMap) {
+            let remainingDebt = Number(customersDebtMap[cust] || 0);
+
+            // إذا تم سداد كامل الدين (الرصيد صفر أو أقل)، نحذفه من قائمة المواد المحذوفة يدوياً ونخفيه من الجدول
+            if (remainingDebt <= 0) {
+                clearedCustomers = clearedCustomers.filter(c => c !== cust);
+                localStorage.setItem(clearedKey, JSON.stringify(clearedCustomers));
+                continue;
+            }
+
             hasDebt = true;
+totalGeneralDebt += remainingDebt;
+            let materialsText = '---';
+            if (!clearedCustomers.includes(cust) && customersMaterialsMap[cust]) {
+                let parts = [];
+                for (let mat in customersMaterialsMap[cust]) {
+                    let q = customersMaterialsMap[cust][mat];
+                    parts.push(`${mat}: <b>${q.toFixed(2)} م3</b>`);
+                }
+                if (parts.length > 0) {
+                    const safeCust = cust.replace(/'/g, "\\'");
+                    materialsText = `
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                            <span>${parts.join(' ، ')}</span>
+                            <button type="button" onclick="clearCustomerDebtMaterials('${safeCust}')" title="إخفاء سجل المواد لهذا الزبون" style="background:#e67e22; color:white; border:none; padding:2px 7px; border-radius:3px; cursor:pointer; font-size:11px; white-space:nowrap;">حذف المواد</button>
+                        </div>
+                    `;
+                }
+            }
+
             debtHtml += `
                 <tr>
                     <td style="padding:10px; border:1px solid #ddd;"><b>${cust}</b></td>
-                    <td style="padding:10px; border:1px solid #ddd; color:${customersDebtMap[cust] > 0 ? '#c0392b' : '#27ae60'}; font-weight:bold;">$${customersDebtMap[cust].toFixed(2)}</td>
+                    <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-weight:bold;">$${remainingDebt.toFixed(2)}</td>
+                    <td style="padding:10px; border:1px solid #ddd; font-size:13px;">${materialsText}</td>
                 </tr>
             `;
         }
 
         if (!hasDebt) {
-            debtHtml += `<tr><td colspan="2" style="text-align:center; padding:10px; color:#666;">لا توجد ديون مترتبة على الزبائن حالياً</td></tr>`;
+            debtHtml += `<tr><td colspan="3" style="text-align:center; padding:10px; color:#666;">لا توجد ديون مترتبة على الزبائن حالياً</td></tr>`;
         }
         debtHtml += `</tbody></table>`;
         debtsContainer.innerHTML = debtHtml;
-
+const totalGeneralDebtsEl = document.getElementById('totalGeneralDebts');
+if (totalGeneralDebtsEl) {
+    totalGeneralDebtsEl.innerText = `${totalGeneralDebt.toFixed(2)} $`;
+}
     }).catch(err => {
         console.error("خطأ في جلب بيانات الديون: ", err);
     });
