@@ -27,6 +27,135 @@ const invoicesCollection = db.collection("invoices");
 const repaymentsCollection = db.collection("repayments");
 const expensesCollection = db.collection("expenses");
 let currentEditId = null;
+let activeDebtSubTab = null; // null = مطوي افتراضياً | 'approved' | 'new'
+
+// ==========================================
+// نظام العمل أوفلاين + طابور المزامنة للمشرف العام
+// ==========================================
+const OFFLINE_QUEUE_KEY = 'quarry_offline_sync_queue_v1';
+
+function getOfflineQueue() {
+    try {
+        return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveOfflineQueue(queue) {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    updateOfflineSyncIndicator();
+}
+
+function enqueueOfflineAction(type, collectionName, payload, localId) {
+    const queue = getOfflineQueue();
+    const id = localId || (type + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
+    if (!queue.some(item => item.queueId === id)) {
+        queue.push({
+            queueId: id,
+            type: type, // 'invoice' | 'repayment' | 'expense'
+            collectionName: collectionName,
+            payload: Object.assign({}, payload, { localId: id }),
+            createdAt: Date.now()
+        });
+        saveOfflineQueue(queue);
+    }
+}
+
+function getPendingItemsByType(type, quarryName = '') {
+    return getOfflineQueue()
+        .filter(item => item.type === type)
+        .filter(item => !quarryName || !item.payload || !item.payload.quarryName || item.payload.quarryName === quarryName)
+        .map(item => Object.assign({}, item.payload, { _localId: item.queueId, _isOfflinePending: true }));
+}
+
+function updateOfflineSyncIndicator() {
+    const queue = getOfflineQueue();
+    let badge = document.getElementById('offlineSyncBadge');
+    if (!badge) {
+        if (!document.body) return;
+        badge = document.createElement('div');
+        badge.id = 'offlineSyncBadge';
+        badge.style.cssText = 'position:fixed; bottom:12px; left:12px; z-index:9999; padding:8px 14px; border-radius:6px; font-size:12px; font-weight:bold; box-shadow:0 2px 8px rgba(0,0,0,0.2); cursor:pointer; display:none;';
+        badge.title = 'اضغط لمحاولة مزامنة البيانات المعلقة الآن';
+        badge.onclick = () => syncOfflineQueueToFirestore(true);
+        document.body.appendChild(badge);
+    }
+
+    const isOnline = navigator.onLine;
+    if (queue.length > 0) {
+        badge.style.display = 'block';
+        badge.style.background = isOnline ? '#f39c12' : '#c0392b';
+        badge.style.color = '#fff';
+        badge.innerText = isOnline
+            ? `⏳ يوجد (${queue.length}) سجل بانتظار المزامنة للمشرف (اضغط للإرسال)`
+            : `📴 وضع أوفلاين: (${queue.length}) سجل محفوظ محلياً وسيُرسل عند عودة النت`;
+    } else if (!isOnline) {
+        badge.style.display = 'block';
+        badge.style.background = '#2c3e50';
+        badge.style.color = '#fff';
+        badge.innerText = '📴 أنت تعمل بدون إنترنت — الحفظ والطباعة مستمران محلياً';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+let isSyncingQueue = false;
+window.syncOfflineQueueToFirestore = async function(showAlertIfEmpty = false) {
+    if (isSyncingQueue) return;
+    if (!navigator.onLine) {
+        if (showAlertIfEmpty) {
+            alert("لا يوجد اتصال بالإنترنت حالياً. البيانات محفوظة محلياً وستُرسل تلقائياً عند توفر الشبكة.");
+        }
+        updateOfflineSyncIndicator();
+        return;
+    }
+
+    let queue = getOfflineQueue();
+    if (queue.length === 0) {
+        if (showAlertIfEmpty) {
+            alert("جميع البيانات مرسلة ومزامَنة مع المشرف العام بالفعل.");
+        }
+        updateOfflineSyncIndicator();
+        return;
+    }
+
+    isSyncingQueue = true;
+    const remaining = [];
+
+    for (const item of queue) {
+        try {
+            const targetCol = db.collection(item.collectionName);
+            await targetCol.doc(item.queueId).set(item.payload, { merge: true });
+        } catch (err) {
+            console.error("فشل مزامنة عنصر من الطابور:", item.queueId, err);
+            remaining.push(item);
+        }
+    }
+
+    saveOfflineQueue(remaining);
+    isSyncingQueue = false;
+
+    if (remaining.length === 0) {
+        console.log("تمت مزامنة كافة البيانات المعلقة بنجاح إلى Firestore!");
+        loadInvoices();
+        loadDebtsTable();
+        loadExpensesTable();
+        calculateCashflow();
+        loadDailyMaterialsStats();
+        if (showAlertIfEmpty) {
+            alert("تم إرسال كافة البيانات المعلقة إلى المشرف العام بنجاح!");
+        }
+    }
+};
+
+window.addEventListener('online', () => {
+    updateOfflineSyncIndicator();
+    syncOfflineQueueToFirestore(false);
+});
+window.addEventListener('offline', () => {
+    updateOfflineSyncIndicator();
+});
 
 // التبديل بين التبويبات
 window.switchTab = function(tabName) {
@@ -35,65 +164,75 @@ window.switchTab = function(tabName) {
 
     const btns = document.querySelectorAll('.tab-btn');
     if (tabName === 'sales') {
-        btns[0].classList.add('active');
-        document.getElementById('tabSales').classList.add('active');
+        if (btns[0]) btns[0].classList.add('active');
+        const el = document.getElementById('tabSales');
+        if (el) el.classList.add('active');
     } else if (tabName === 'expenses') {
-        btns[1].classList.add('active');
-        document.getElementById('tabExpenses').classList.add('active');
-        loadExpensesTable(); // تحميل سجل المصاريف عند فتح تبويب المصاريف
+        if (btns[1]) btns[1].classList.add('active');
+        const el = document.getElementById('tabExpenses');
+        if (el) el.classList.add('active');
+        loadExpensesTable();
     } else if (tabName === 'debts') {
-        btns[2].classList.add('active');
-        document.getElementById('tabDebts').classList.add('active');
+        if (btns[2]) btns[2].classList.add('active');
+        const el = document.getElementById('tabDebts');
+        if (el) el.classList.add('active');
         loadDebtsTable();
     } else if (tabName === 'cashflow') {
-        btns[3].classList.add('active');
-        document.getElementById('tabCashflow').classList.add('active');
-        if(document.getElementById('cashDateFilter')) {
+        if (btns[3]) btns[3].classList.add('active');
+        const el = document.getElementById('tabCashflow');
+        if (el) el.classList.add('active');
+        if (document.getElementById('cashDateFilter')) {
             document.getElementById('cashDateFilter').valueAsDate = new Date();
         }
         calculateCashflow();
     } else if (tabName === 'materials') {
-        btns[4].classList.add('active');
-        document.getElementById('tabMaterials').classList.add('active');
+        if (btns[4]) btns[4].classList.add('active');
+        const el = document.getElementById('tabMaterials');
+        if (el) el.classList.add('active');
         loadInvoices();
     } else if (tabName === 'archive') {
-        btns[5].classList.add('active');
-        document.getElementById('tabArchive').classList.add('active');
+        if (btns[5]) btns[5].classList.add('active');
+        const el = document.getElementById('tabArchive');
+        if (el) el.classList.add('active');
         loadInvoices();
     } else if (tabName === 'chat') {
-        btns[6].classList.add('active');
-        document.getElementById('tabChat').classList.add('active');
+        if (btns[6]) btns[6].classList.add('active');
+        const el = document.getElementById('tabChat');
+        if (el) el.classList.add('active');
         loadChatMessages();
     }
 };
 
 // إضافة سطر مادة جديدة
-document.getElementById('btnAddRow').addEventListener('click', function() {
-    const tbody = document.getElementById('itemsBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-        <td>
-            <select class="item-name">
-                <option value="بحص صب">بحص صب</option>
-                <option value="خليط">خليط</option>
-                <option value="رمل صب">رمل صب</option>
-                <option value="زرادة عفاس">زرادة عفاس</option>
-                <option value="زرادة كسارة">زرادة كسارة</option>
-                <option value="نحاته ناعمة">نحاته ناعمة</option>
-                <option value="فرازة">فرازة</option>
-                <option value="كرابية">كرابية</option>
-                <option value="كرابية بلوك">كرابية بلوك</option>
-                <option value="مواد أخرى">مواد أخرى</option>
-            </select>
-        </td>
-       <td><input type="number" class="item-qty" value="" min="0" placeholder=""></td>
-<td><input type="number" class="item-price" value="" min="0" placeholder=""></td>
-        <td><input type="text" class="item-total" value="0.00 $" readonly></td>
-        <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
-    `;
-    tbody.appendChild(tr);
-    attachEventsToRows();
-});
+const btnAddRowEl = document.getElementById('btnAddRow');
+if (btnAddRowEl) {
+    btnAddRowEl.addEventListener('click', function() {
+        const tbody = document.getElementById('itemsBody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <select class="item-name">
+                    <option value="بحص صب">بحص صب</option>
+                    <option value="خليط">خليط</option>
+                    <option value="رمل صب">رمل صب</option>
+                    <option value="زرادة عفاس">زرادة عفاس</option>
+                    <option value="زرادة كسارة">زرادة كسارة</option>
+                    <option value="نحاته ناعمة">نحاته ناعمة</option>
+                    <option value="فرازة">فرازة</option>
+                    <option value="كرابية">كرابية</option>
+                    <option value="كرابية بلوك">كرابية بلوك</option>
+                    <option value="مواد أخرى">مواد أخرى</option>
+                </select>
+            </td>
+            <td><input type="number" class="item-qty" value="" min="0" placeholder=""></td>
+            <td><input type="number" class="item-price" value="" min="0" placeholder=""></td>
+            <td><input type="text" class="item-total" value="0.00 $" readonly></td>
+            <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
+        `;
+        tbody.appendChild(tr);
+        attachEventsToRows();
+    });
+}
 
 function removeRow(btn) {
     const tbody = document.getElementById('itemsBody');
@@ -108,8 +247,8 @@ function attachEventsToRows() {
     rows.forEach(row => {
         const qty = row.querySelector('.item-qty');
         const price = row.querySelector('.item-price');
-        if(qty) qty.oninput = calculateGrandTotal;
-        if(price) price.oninput = calculateGrandTotal;
+        if (qty) qty.oninput = calculateGrandTotal;
+        if (price) price.oninput = calculateGrandTotal;
     });
 }
 
@@ -121,16 +260,16 @@ function calculateGrandTotal() {
         const q = parseFloat(row.querySelector('.item-qty').value) || 0;
         const p = parseFloat(row.querySelector('.item-price').value) || 0;
         const total = q * p;
-        
+
         const totalInput = row.querySelector('.item-total');
-        if(totalInput) {
+        if (totalInput) {
             totalInput.value = total.toFixed(2) + ' $';
         }
         totalAll += total;
     });
 
     const grandTotalEl = document.getElementById('grandTotal');
-    if(grandTotalEl) {
+    if (grandTotalEl) {
         grandTotalEl.innerText = totalAll.toFixed(2) + ' $';
     }
 }
@@ -146,7 +285,7 @@ function generateQueueNumber() {
     if (lastSavedDate === todayStrFixed && lastQueueNum > 0) {
         queueNumber = lastQueueNum + 1;
     } else {
-        queueNumber = 1; 
+        queueNumber = 1;
     }
 
     localStorage.setItem('lastQueueNum', queueNumber);
@@ -155,77 +294,97 @@ function generateQueueNumber() {
     return `A-${queueNumber}`;
 }
 
-// حفظ الفاتورة والطباعة الفورية (متوافق مع حماية المتصفح)
-document.getElementById('btnSaveAndPrint').addEventListener('click', function() {
-    const customerName = document.getElementById('customerName').value.trim();
-    const carNumber = document.getElementById('carNumber').value.trim();
-    const paymentStatus = document.getElementById('paymentStatus').value;
+// حفظ الفاتورة والطباعة الفورية (يدعم العمل بدون إنترنت عبر طابور المزامنة)
+const btnSaveAndPrintEl = document.getElementById('btnSaveAndPrint');
+if (btnSaveAndPrintEl) {
+    btnSaveAndPrintEl.addEventListener('click', function() {
+        const customerName = document.getElementById('customerName').value.trim();
+        const carNumber = document.getElementById('carNumber').value.trim();
+        const paymentStatus = document.getElementById('paymentStatus').value;
 
-    if (!customerName) {
-        alert("يرجى إدخال اسم الشركة أولاً!");
-        return;
-    }
+        if (!customerName) {
+            alert("يرجى إدخال اسم الشركة أولاً!");
+            return;
+        }
 
-    const items = [];
-    document.querySelectorAll('#itemsBody tr').forEach(row => {
-        items.push({
-            name: row.querySelector('.item-name').value,
-            qty: parseFloat(row.querySelector('.item-qty').value) || 0,
-            price: parseFloat(row.querySelector('.item-price').value) || 0,
-            total: parseFloat(row.querySelector('.item-total').value.replace('$', '')) || 0
+        const items = [];
+        document.querySelectorAll('#itemsBody tr').forEach(row => {
+            items.push({
+                name: row.querySelector('.item-name').value,
+                qty: parseFloat(row.querySelector('.item-qty').value) || 0,
+                price: parseFloat(row.querySelector('.item-price').value) || 0,
+                total: parseFloat(row.querySelector('.item-total').value.replace('$', '')) || 0
+            });
         });
-    });
 
-    const grandTotalText = document.getElementById('grandTotal').innerText;
-    const numericGrandTotal = parseFloat(grandTotalText.replace('$', '')) || 0;
+        const grandTotalText = document.getElementById('grandTotal').innerText;
+        const numericGrandTotal = parseFloat(grandTotalText.replace('$', '')) || 0;
 
-    // تعريف المتغيرات أولاً
-    const currentTurn = generateQueueNumber(); 
-    const currentQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 1;
+        const currentTurn = generateQueueNumber();
+        const currentQueueNum = parseInt(localStorage.getItem('lastQueueNum')) || 1;
 
-const quarryName = localStorage.getItem('savedQuarryName') || document.getElementById('quarryName').value.trim() || 'مقلع غير مسمى';
-    const quarryAddress = document.getElementById('quarryAddress').value.trim() || localStorage.getItem('savedQuarryAddress') || '---';
-    const quarryPhone = document.getElementById('quarryPhone').value.trim() || localStorage.getItem('savedQuarryPhone') || '---';
+        const quarryName = localStorage.getItem('savedQuarryName') || document.getElementById('quarryName').value.trim() || 'مقلع غير مسمى';
+        const quarryAddress = document.getElementById('quarryAddress').value.trim() || localStorage.getItem('savedQuarryAddress') || '---';
+        const quarryPhone = document.getElementById('quarryPhone').value.trim() || localStorage.getItem('savedQuarryPhone') || '---';
 
-    const newInvoice = {
-        queueNumber: currentQueueNum, 
-        turnNumber: currentTurn,      
-        quarryName,
-        quarryAddress,
-        quarryPhone,
-        date: new Date().toLocaleDateString('ar-SY'),
-        isoDate: new Date().toLocaleDateString('en-CA'), 
-        customerName,
-        carNumber: carNumber || '---',
-        paymentStatus,
-        items,
-        grandTotal: numericGrandTotal
-    };
+        const localInvoiceId = 'inv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
-    // 1. تشغيل الطباعة والمعاينة فوراً
-    printInvoiceData(newInvoice);
+        const newInvoice = {
+            localId: localInvoiceId,
+            queueNumber: currentQueueNum,
+            turnNumber: currentTurn,
+            quarryName,
+            quarryAddress,
+            quarryPhone,
+            date: new Date().toLocaleDateString('ar-SY'),
+            isoDate: new Date().toLocaleDateString('en-CA'),
+            customerName,
+            carNumber: carNumber || '---',
+            paymentStatus,
+            items,
+            grandTotal: numericGrandTotal,
+            timestamp: Date.now()
+        };
 
-    // 2. الحفظ في السحابة والقائمة في الخلفية
-    invoicesCollection.add(newInvoice)
-    .then(() => {
-        console.log("تم حفظ الفاتورة في الأرشيف بنجاح!");
-        loadInvoices(); 
+        // 1. تشغيل الطباعة والمعاينة فوراً وإضافة الوصل لقائمة آخر 5 إيصالات
+        printInvoiceData(newInvoice);
         addRecentReceipt(newInvoice);
-    })
-    .catch((error) => {
-        console.error("خطأ في الاتصال بالسحابة: ", error);
-        alert("حدث خطأ أثناء الحفظ بالسحابة!");
-    });
 
-    resetForm();
-});
+        // 2. الحفظ الفوري في الطابور المحلي ثم محاولة الإرسال للسحابة إذا كان الإنترنت متاحاً
+        enqueueOfflineAction('invoice', 'invoices', newInvoice, localInvoiceId);
+        loadInvoices();
+        loadDebtsTable();
+        calculateCashflow();
+        loadDailyMaterialsStats();
+
+        if (navigator.onLine) {
+            invoicesCollection.doc(localInvoiceId).set(newInvoice, { merge: true })
+                .then(() => {
+                    const updatedQueue = getOfflineQueue().filter(q => q.queueId !== localInvoiceId);
+                    saveOfflineQueue(updatedQueue);
+                    console.log("تم حفظ الفاتورة ومزامنتها في السحابة بنجاح!");
+                    loadInvoices();
+                    loadDebtsTable();
+                    calculateCashflow();
+                    loadDailyMaterialsStats();
+                })
+                .catch((error) => {
+                    console.warn("الفاتورة محفوظة محلياً وستُزامن لاحقاً:", error);
+                });
+        } else {
+            console.log("تم حفظ الفاتورة محلياً في وضع عدم الاتصال (أوفلاين).");
+        }
+
+        resetForm();
+    });
+}
 
 // إدارة قائمة آخر الإيصالات (تخزين حتى 5، وحذف الأقدم تلقائياً)
 function addRecentReceipt(inv) {
     let recent = JSON.parse(localStorage.getItem('recent_receipts') || '[]');
     recent.push(inv);
     if (recent.length > 5) {
-        recent.shift(); // حذف أول إيصال (الأقدم) تلقائياً بمجرد تجاوز العدد 5
+        recent.shift();
     }
     localStorage.setItem('recent_receipts', JSON.stringify(recent));
     renderRecentReceipts();
@@ -246,7 +405,6 @@ function renderRecentReceipts() {
     section.style.display = 'block';
     container.innerHTML = '';
 
-    // عرض الإيصالات من الأحدث إلى الأقدم
     recent.slice().reverse().forEach((inv, index) => {
         const actualIndex = recent.length - 1 - index;
         const itemDiv = document.createElement('div');
@@ -279,23 +437,21 @@ window.deleteRecentReceipt = function(index) {
 };
 
 function printInvoiceData(inv) {
-    if(document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = inv.quarryName || 'مقلع غير مسمى';
-    
-    // تحديث العنوان والهاتف في الوصل المطبوع
-    if(document.getElementById('pQuarryAddressPhone')) {
+    if (document.getElementById('pQuarryHeader')) document.getElementById('pQuarryHeader').innerText = inv.quarryName || 'مقلع غير مسمى';
+
+    if (document.getElementById('pQuarryAddressPhone')) {
         const addr = inv.quarryAddress || localStorage.getItem('savedQuarryAddress') || '---';
         const phn = inv.quarryPhone || localStorage.getItem('savedQuarryPhone') || '---';
         document.getElementById('pQuarryAddressPhone').innerText = `العنوان: ${addr} | هاتف: ${phn}`;
     }
 
-    if(document.getElementById('pDate')) document.getElementById('pDate').innerText = 'التاريخ: ' + (inv.date || '');
-    if(document.getElementById('pQueueNum')) document.getElementById('pQueueNum').innerText = inv.turnNumber || ('A-' + (inv.queueNumber || 1));
-    if(document.getElementById('pCustomer')) document.getElementById('pCustomer').innerText = inv.customerName || '';
-    if(document.getElementById('pDriver')) document.getElementById('pDriver').innerText = inv.carNumber || '---';
-    if(document.getElementById('pPayment')) document.getElementById('pPayment').innerText = inv.paymentStatus || '';
+    if (document.getElementById('pDate')) document.getElementById('pDate').innerText = 'التاريخ: ' + (inv.date || '');
+    if (document.getElementById('pQueueNum')) document.getElementById('pQueueNum').innerText = inv.turnNumber || ('A-' + (inv.queueNumber || 1));
+    if (document.getElementById('pCustomer')) document.getElementById('pCustomer').innerText = inv.customerName || '';
+    if (document.getElementById('pDriver')) document.getElementById('pDriver').innerText = inv.carNumber || '---';
+    if (document.getElementById('pPayment')) document.getElementById('pPayment').innerText = inv.paymentStatus || '';
 
     const container = document.getElementById('pItemsTableContainer');
-    // ... وباقي الكود القديم يبقى كما هو في الأسفل
     if (container && inv.items) {
         container.innerHTML = '';
         if (inv.items.length >= 2) {
@@ -331,7 +487,6 @@ function printInvoiceData(inv) {
         }
     }
 
-    // إجبار المتصفح على فتح نافذة الطباعة بسلاسة ودون تعليق
     setTimeout(() => {
         window.focus();
         window.print();
@@ -345,11 +500,14 @@ document.addEventListener("DOMContentLoaded", () => {
         repaidDateEl.value = new Date().toLocaleDateString('en-CA');
     }
 
-    // تحميل آخر الإيصالات المخزنة عند فتح الصفحة
     renderRecentReceipts();
-    loadExpensesTable(); // تحميل جدول المصاريف عند البدء
+    loadExpensesTable();
+    updateOfflineSyncIndicator();
+    if (navigator.onLine) {
+        syncOfflineQueueToFirestore(false);
+    }
 
-   const btnSaveRepayment = document.getElementById('btnSaveRepayment');
+    const btnSaveRepayment = document.getElementById('btnSaveRepayment');
     if (btnSaveRepayment) {
         btnSaveRepayment.addEventListener('click', function() {
             const customerNameInput = document.getElementById('repaidCustomerName');
@@ -366,10 +524,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            // تعريف اسم المقلع الحالي لضمان العزل
             const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+            const localRepId = 'rep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
             const repaymentData = {
+                localId: localRepId,
                 customerName: customerName,
                 amount: amount,
                 date: dateInput || todayIso,
@@ -377,22 +536,34 @@ document.addEventListener("DOMContentLoaded", () => {
                 quarryName: currentQuarry
             };
 
-            repaymentsCollection.add(repaymentData)
-            .then(() => {
-                alert("تم تسجيل دفعة الدين بنجاح وخصمها من الحساب وتحديث الصندوق!");
-                if(customerNameInput) customerNameInput.value = '';
-                if(amountInput) amountInput.value = '';
-                if(dateInputEl) dateInputEl.value = new Date().toLocaleDateString('en-CA');
-                loadDebtsTable();
-                calculateCashflow();
-            })
-            .catch((error) => {
-                console.error("خطأ في حفظ الدفعة: ", error);
-                alert("حدث خطأ أثناء حفظ الدفعة بالسحابة!");
-            });
+            enqueueOfflineAction('repayment', 'repayments', repaymentData, localRepId);
+            alert(navigator.onLine
+                ? "تم تسجيل دفعة الدين بنجاح وخصمها من الحساب وتحديث الصندوق!"
+                : "تم حفظ دفعة الدين محلياً (أوفلاين) وتحديث الرصيد والصندوق، وسيتم إرسالها للمشرف عند عودة الإنترنت.");
+
+            if (customerNameInput) customerNameInput.value = '';
+            if (amountInput) amountInput.value = '';
+            if (dateInputEl) dateInputEl.value = new Date().toLocaleDateString('en-CA');
+
+            loadDebtsTable();
+            calculateCashflow();
+
+            if (navigator.onLine) {
+                repaymentsCollection.doc(localRepId).set(repaymentData, { merge: true })
+                    .then(() => {
+                        const updatedQueue = getOfflineQueue().filter(q => q.queueId !== localRepId);
+                        saveOfflineQueue(updatedQueue);
+                        loadDebtsTable();
+                        calculateCashflow();
+                    })
+                    .catch((error) => {
+                        console.warn("الدفعة محفوظة محلياً وستُزامن لاحقاً:", error);
+                    });
+            }
         });
     }
-    });
+});
+
 // حفظ المصاريف / الواردات وتحديث الجدول والصندوق
 window.saveExpenseData = function() {
     const noteInput = document.getElementById('expenseNote') || document.querySelector('#tabExpenses input[type="text"]');
@@ -409,31 +580,43 @@ window.saveExpenseData = function() {
         return;
     }
 
-    // جلب اسم المقلع الحالي المخزن تلقائياً على جهاز المحاسب
     const currentQuarryName = localStorage.getItem('savedQuarryName') || 'مقلع غير مسمى';
+    const localExpId = 'exp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
 
     const expenseData = {
+        localId: localExpId,
         note: note,
         amount: amount,
-        quarryName: currentQuarryName, // <-- ربط المصروف باسم المقلع تلقائياً
+        quarryName: currentQuarryName,
         date: todayAr,
         isoDate: todayIso,
         time: currentTime,
         timestamp: Date.now()
     };
 
-    expensesCollection.add(expenseData)
-    .then(() => {
-        alert("تم حفظ المصروف بنجاح وتحديث الصندوق!");
-        if (noteInput) noteInput.value = '';
-        if (amountInput) amountInput.value = '';
-        loadExpensesTable(); // تحديث جدول المصاريف مباشرة
-        calculateCashflow();
-    })
-    .catch((error) => {
-        console.error("خطأ في حفظ المصروف: ", error);
-        alert("حدث خطأ أثناء حفظ المصروف بالسحابة!");
-    });
+    enqueueOfflineAction('expense', 'expenses', expenseData, localExpId);
+    alert(navigator.onLine
+        ? "تم حفظ المصروف بنجاح وتحديث الصندوق!"
+        : "تم حفظ المصروف محلياً (أوفلاين) وتحديث الصندوق، وسيُرسل للمشرف عند عودة الإنترنت.");
+
+    if (noteInput) noteInput.value = '';
+    if (amountInput) amountInput.value = '';
+
+    loadExpensesTable();
+    calculateCashflow();
+
+    if (navigator.onLine) {
+        expensesCollection.doc(localExpId).set(expenseData, { merge: true })
+            .then(() => {
+                const updatedQueue = getOfflineQueue().filter(q => q.queueId !== localExpId);
+                saveOfflineQueue(updatedQueue);
+                loadExpensesTable();
+                calculateCashflow();
+            })
+            .catch((error) => {
+                console.warn("المصروف محفوظ محلياً وسيُزامن لاحقاً:", error);
+            });
+    }
 };
 
 // دالة تحميل وعرض جدول المصاريف والسجل التفصيلي
@@ -441,16 +624,27 @@ function loadExpensesTable() {
     const expensesContainer = document.getElementById('expensesListTable');
     if (!expensesContainer) return;
 
-const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
     if (!currentQuarry) return;
 
     expensesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
-    let expensesList = [];
+        let expensesList = [];
+        const cloudIds = new Set();
+
         querySnapshot.forEach((doc) => {
-            expensesList.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            cloudIds.add(doc.id);
+            if (data.localId) cloudIds.add(data.localId);
+            expensesList.push({ id: doc.id, ...data });
         });
 
-        // ترتيب المصاريف من الأحدث إلى الأقدم بناءً على الـ timestamp
+        const pendingExpenses = getPendingItemsByType('expense', currentQuarry);
+        pendingExpenses.forEach(exp => {
+            if (!cloudIds.has(exp._localId)) {
+                expensesList.push({ id: exp._localId, ...exp });
+            }
+        });
+
         expensesList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
         if (expensesList.length === 0) {
@@ -473,10 +667,11 @@ const currentQuarry = localStorage.getItem('savedQuarryName') || '';
 
         expensesList.forEach((exp) => {
             let dateTimeStr = `${exp.date || '---'} ${exp.time ? '(' + exp.time + ')' : ''}`;
+            const pendingTag = exp._isOfflinePending ? ` <span style="background:#f39c12; color:#fff; font-size:10px; padding:1px 6px; border-radius:3px;">بانتظار الإرسال</span>` : '';
             tableHTML += `
                 <tr>
                     <td style="padding:10px; border:1px solid #ddd; font-size:13px;">${dateTimeStr}</td>
-                    <td style="padding:10px; border:1px solid #ddd;"><b>${exp.note || '---'}</b></td>
+                    <td style="padding:10px; border:1px solid #ddd;"><b>${exp.note || '---'}</b>${pendingTag}</td>
                     <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#c0392b;">$${Number(exp.amount || 0).toFixed(2)}</td>
                     <td style="padding:10px; border:1px solid #ddd; text-align:center;">
                         <button type="button" onclick="deleteExpense('${exp.id}')" style="background:#e74c3c; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:12px;">حذف X</button>
@@ -487,16 +682,22 @@ const currentQuarry = localStorage.getItem('savedQuarryName') || '';
 
         tableHTML += `</tbody></table>`;
         expensesContainer.innerHTML = tableHTML;
-
     }).catch((error) => {
         console.error("خطأ في جلب بيانات المصاريف: ", error);
     });
 }
 
-// دالة حذف مصروف معين من جدول السجل والسحابة
+// دالة حذف مصروف معين من جدول السجل والطابور/السحابة
 window.deleteExpense = function(id) {
     if (!id) return;
     if (confirm("هل أنت متأكد من حذف هذا السجل نهائياً؟")) {
+        const filteredQueue = getOfflineQueue().filter(q => q.queueId !== id);
+        if (filteredQueue.length !== getOfflineQueue().length) {
+            saveOfflineQueue(filteredQueue);
+            loadExpensesTable();
+            calculateCashflow();
+            return;
+        }
         expensesCollection.doc(id).delete().then(() => {
             alert("تم حذف المصروف بنجاح!");
             loadExpensesTable();
@@ -520,6 +721,7 @@ window.filterExpenses = function() {
         }
     });
 };
+
 // مسح سجل المواد الظاهرة لزبون معين يدوياً من قبل المحاسب
 window.clearCustomerDebtMaterials = function(customerName) {
     const currentQuarry = localStorage.getItem('savedQuarryName') || '';
@@ -531,6 +733,469 @@ window.clearCustomerDebtMaterials = function(customerName) {
     }
     loadDebtsTable();
 };
+
+// ==========================================
+// تعديل اسم الزبون في كافة الفواتير والدفعات المرتبطة به
+// ==========================================
+window.renameCustomerName = async function(oldName) {
+    const cleanOld = (oldName || '').trim();
+    if (!cleanOld) return;
+
+    const inputNew = prompt(`تعديل اسم الزبون من "${cleanOld}" إلى الاسم الصحيح:`, cleanOld);
+    if (inputNew === null) return;
+
+    const cleanNew = inputNew.trim();
+    if (!cleanNew) {
+        alert("يرجى إدخال اسم صحيح للزبون!");
+        return;
+    }
+    if (cleanNew === cleanOld) return;
+
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+
+    try {
+        let queue = typeof getOfflineQueue === 'function' ? getOfflineQueue() : [];
+        let queueChanged = false;
+
+        queue = queue.map(item => {
+            if (!item || !item.payload) return item;
+            const sameQuarry = !currentQuarry || !item.payload.quarryName || item.payload.quarryName === currentQuarry;
+            if (sameQuarry && (item.payload.customerName || '').trim() === cleanOld) {
+                queueChanged = true;
+                return Object.assign({}, item, {
+                    payload: Object.assign({}, item.payload, { customerName: cleanNew })
+                });
+            }
+            return item;
+        });
+
+        if (queueChanged && typeof saveOfflineQueue === 'function') {
+            saveOfflineQueue(queue);
+        }
+
+        if (currentQuarry) {
+            const clearedKey = `clearedDebtMaterials_${currentQuarry}`;
+            let clearedList = JSON.parse(localStorage.getItem(clearedKey) || '[]');
+            if (clearedList.includes(cleanOld)) {
+                clearedList = clearedList.filter(c => c !== cleanOld);
+                if (!clearedList.includes(cleanNew)) clearedList.push(cleanNew);
+                localStorage.setItem(clearedKey, JSON.stringify(clearedList));
+            }
+        }
+
+        const invQuery = currentQuarry
+            ? invoicesCollection.where('quarryName', '==', currentQuarry)
+            : invoicesCollection;
+        const repQuery = currentQuarry
+            ? repaymentsCollection.where('quarryName', '==', currentQuarry)
+            : repaymentsCollection;
+
+        const [invSnap, repSnap] = await Promise.all([invQuery.get(), repQuery.get()]);
+        const batch = db.batch();
+        let batchOps = 0;
+
+        invSnap.forEach(doc => {
+            const data = doc.data();
+            if ((data.customerName || '').trim() === cleanOld) {
+                batch.update(doc.ref, { customerName: cleanNew });
+                batchOps++;
+            }
+        });
+
+        repSnap.forEach(doc => {
+            const data = doc.data();
+            if ((data.customerName || '').trim() === cleanOld) {
+                batch.update(doc.ref, { customerName: cleanNew });
+                batchOps++;
+            }
+        });
+
+        if (batchOps > 0) {
+            await batch.commit();
+        }
+
+        alert(`تم تعديل الاسم من "${cleanOld}" إلى "${cleanNew}" بنجاح مع الحفاظ على كافة الفواتير والدفعات والمواد.`);
+        if (typeof loadDebtsTable === 'function') loadDebtsTable();
+        if (typeof loadInvoices === 'function') loadInvoices();
+        if (typeof calculateCashflow === 'function') calculateCashflow();
+    } catch (err) {
+        console.error("خطأ أثناء تعديل اسم الزبون:", err);
+        alert("حدث خطأ أثناء تحديث الاسم. تأكد من الاتصال أو جرّب مرة أخرى.");
+    }
+};
+
+// ==========================================
+// كشف حساب تفصيلي (شبيه بالإكسل) لكل زبون مدين
+// ==========================================
+window.openCustomerLedgerModal = function(customerName) {
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+    if (!customerName) return;
+
+    Promise.all([
+        invoicesCollection.where('quarryName', '==', currentQuarry).get(),
+        repaymentsCollection.where('quarryName', '==', currentQuarry).get()
+    ]).then(([invSnap, repSnap]) => {
+        const movements = [];
+        const seenInv = new Set();
+        const seenRep = new Set();
+        const targetCust = customerName.trim();
+
+        const pushInvoiceMovements = (inv) => {
+            if (inv.paymentStatus !== 'دين') return;
+            if ((inv.customerName || '').trim() !== targetCust) return;
+
+            const ts = inv.timestamp || new Date(inv.isoDate || Date.now()).getTime() || Date.now();
+            const dateLabel = inv.date || inv.isoDate || '---';
+            const turnLabel = inv.turnNumber ? `دور #${inv.turnNumber}` : 'فاتورة دين';
+
+            if (Array.isArray(inv.items) && inv.items.length > 0) {
+                const totalItemsAmount = inv.items.reduce((acc, it) => acc + (Number(it.total) || 0), 0);
+                const fallbackTotal = Number(inv.grandTotal || 0);
+
+                inv.items.forEach((it, idx) => {
+                    const matName = (it.name || 'مادة عامة').trim();
+                    const qty = Number(it.qty || 0);
+                    const price = Number(it.price || 0);
+                    const itemAmount = totalItemsAmount > 0
+                        ? (Number(it.total) || 0)
+                        : (idx === 0 ? fallbackTotal : 0);
+
+                    movements.push({
+                        sortKey: ts + idx,
+                        date: dateLabel,
+                        operation: `${turnLabel} (سيارة: ${inv.carNumber || '---'})`,
+                        materialName: matName,
+                        qty: qty,
+                        unitPrice: price,
+                        debitAdd: itemAmount,
+                        creditPaid: 0
+                    });
+                });
+            } else {
+                movements.push({
+                    sortKey: ts,
+                    date: dateLabel,
+                    operation: `${turnLabel} (سيارة: ${inv.carNumber || '---'})`,
+                    materialName: 'مواد عامة',
+                    qty: 0,
+                    unitPrice: 0,
+                    debitAdd: Number(inv.grandTotal || 0),
+                    creditPaid: 0
+                });
+            }
+        };
+
+        invSnap.forEach(doc => {
+            const inv = doc.data();
+            seenInv.add(doc.id);
+            if (inv.localId) seenInv.add(inv.localId);
+            pushInvoiceMovements(inv);
+        });
+
+        getPendingItemsByType('invoice', currentQuarry).forEach(inv => {
+            if (!seenInv.has(inv._localId)) {
+                pushInvoiceMovements(inv);
+            }
+        });
+
+        const pushRepaymentMovement = (rep) => {
+            if ((rep.customerName || '').trim() !== targetCust) return;
+            const ts = rep.timestamp || new Date(rep.date || Date.now()).getTime() || Date.now();
+            movements.push({
+                sortKey: ts,
+                date: rep.date || '---',
+                operation: 'دفعة محصلة من الدين',
+                materialName: '--- (دفعة نقدية)',
+                qty: 0,
+                unitPrice: 0,
+                debitAdd: 0,
+                creditPaid: Number(rep.amount || 0)
+            });
+        };
+
+        repSnap.forEach(doc => {
+            const rep = doc.data();
+            seenRep.add(doc.id);
+            if (rep.localId) seenRep.add(rep.localId);
+            pushRepaymentMovement(rep);
+        });
+
+        getPendingItemsByType('repayment', currentQuarry).forEach(rep => {
+            if (!seenRep.has(rep._localId)) {
+                pushRepaymentMovement(rep);
+            }
+        });
+
+        movements.sort((a, b) => a.sortKey - b.sortKey);
+
+        let runningBalance = 0;
+        let totalQtyAll = 0;
+        let totalDebitAll = 0;
+        let totalPaidAll = 0;
+
+        let rowsHtml = '';
+        movements.forEach((m, index) => {
+            runningBalance += (m.debitAdd - m.creditPaid);
+            totalQtyAll += m.qty;
+            totalDebitAll += m.debitAdd;
+            totalPaidAll += m.creditPaid;
+
+            const isPayment = m.creditPaid > 0 && m.debitAdd === 0;
+            const rowBg = isPayment ? '#eafaf1' : (index % 2 === 0 ? '#ffffff' : '#fafafa');
+            const qtyText = m.qty > 0 ? `${m.qty.toFixed(2)} م3` : '---';
+            const priceText = m.unitPrice > 0 ? `$${m.unitPrice.toFixed(2)}` : '---';
+            const debitText = m.debitAdd > 0 ? `$${m.debitAdd.toFixed(2)}` : '---';
+            const paidText = m.creditPaid > 0 ? `$${m.creditPaid.toFixed(2)}` : '---';
+
+            rowsHtml += `
+                <tr style="background:${rowBg};">
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center;">${index + 1}</td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center;">${m.date}</td>
+                    <td style="padding:8px; border:1px solid #ccc;">${m.operation}</td>
+                    <td style="padding:8px; border:1px solid #ccc;"><b>${m.materialName}</b></td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center; color:#2980b9;"><b>${qtyText}</b></td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center;">${priceText}</td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center; color:#c0392b; font-weight:bold;">${debitText}</td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center; color:#27ae60; font-weight:bold;">${paidText}</td>
+                    <td style="padding:8px; border:1px solid #ccc; text-align:center; font-weight:bold; color:#2c3e50;">$${runningBalance.toFixed(2)}</td>
+                </tr>
+            `;
+        });
+
+        if (!rowsHtml) {
+            rowsHtml = `<tr><td colspan="9" style="padding:14px; text-align:center; color:#666;">لا توجد حركات مسجلة لهذا الزبون.</td></tr>`;
+        }
+
+        let modal = document.getElementById('customerLedgerModal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'customerLedgerModal';
+            modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10000; display:flex; align-items:center; justify-content:center; padding:16px;';
+            document.body.appendChild(modal);
+        }
+
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+            <div style="background:#fff; width:100%; max-width:1050px; max-height:90vh; overflow:auto; border-radius:8px; padding:18px; box-shadow:0 8px 28px rgba(0,0,0,0.3); direction:rtl;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #8B5A2B; padding-bottom:10px; margin-bottom:14px;">
+                    <div>
+                        <h3 style="margin:0; color:#2c3e50;">📊 كشف حساب الزبون التفصيلي: <span style="color:#8B5A2B;">${targetCust}</span></h3>
+                        <small style="color:#666;">المقلع: ${currentQuarry || 'غير محدد'} — سجل تفصيلي بالمواد والكميات والدفعات والرصيد المتبقي</small>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" onclick="window.print()" style="background:#2980b9; color:#fff; border:none; padding:6px 12px; border-radius:5px; cursor:pointer; font-size:13px;">🖨️ طباعة الكشف</button>
+                        <button type="button" onclick="document.getElementById('customerLedgerModal').style.display='none'" style="background:#e74c3c; color:#fff; border:none; padding:6px 12px; border-radius:5px; cursor:pointer; font-size:13px;">إغلاق ✖</button>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead>
+                            <tr style="background:#8B5A2B; color:#fff;">
+                                <th style="padding:9px; border:1px solid #ccc; width:45px;">#</th>
+                                <th style="padding:9px; border:1px solid #ccc;">التاريخ</th>
+                                <th style="padding:9px; border:1px solid #ccc;">البيان / الحركة</th>
+                                <th style="padding:9px; border:1px solid #ccc;">المادة</th>
+                                <th style="padding:9px; border:1px solid #ccc;">الكمية</th>
+                                <th style="padding:9px; border:1px solid #ccc;">سعر المتر</th>
+                                <th style="padding:9px; border:1px solid #ccc;">دين مضاف ($)</th>
+                                <th style="padding:9px; border:1px solid #ccc;">مدفوع ($)</th>
+                                <th style="padding:9px; border:1px solid #ccc;">المتبقي ($)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                            <tr style="background:#f2f4f4; font-weight:bold; font-size:14px;">
+                                <td colspan="4" style="padding:10px; border:1px solid #ccc; text-align:right;">الإجمالي العام للزبون:</td>
+                                <td style="padding:10px; border:1px solid #ccc; text-align:center; color:#2980b9;">${totalQtyAll.toFixed(2)} م3</td>
+                                <td style="padding:10px; border:1px solid #ccc; text-align:center;">---</td>
+                                <td style="padding:10px; border:1px solid #ccc; text-align:center; color:#c0392b;">$${totalDebitAll.toFixed(2)}</td>
+                                <td style="padding:10px; border:1px solid #ccc; text-align:center; color:#27ae60;">$${totalPaidAll.toFixed(2)}</td>
+                                <td style="padding:10px; border:1px solid #ccc; text-align:center; color:#c0392b;">$${runningBalance.toFixed(2)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }).catch(err => {
+        console.error("خطأ في تحميل كشف حساب الزبون:", err);
+        alert("تعذر فتح كشف حساب الزبون حالياً.");
+    });
+};
+
+// ==========================================
+// تصنيف الزبائن كـ خانات متجاورة تفتح عند الاختيار فقط + قائمة اقتراحات فورية
+// ==========================================
+function buildCustomerAutocompleteList(inputEl, customerNames, onSelectCallback) {
+    if (!inputEl) return;
+
+    let listId = inputEl.id + '_autocomplete_box';
+    let box = document.getElementById(listId);
+    if (!box) {
+        box = document.createElement('div');
+        box.id = listId;
+        box.style.cssText = 'position:absolute; top:100%; right:0; left:0; background:#fff; border:1px solid #8B5A2B; border-radius:0 0 6px 6px; max-height:190px; overflow-y:auto; z-index:999; box-shadow:0 6px 16px rgba(0,0,0,0.15); display:none;';
+        if (inputEl.parentElement) {
+            inputEl.parentElement.style.position = 'relative';
+            inputEl.parentElement.appendChild(box);
+        }
+    }
+
+    const renderMatches = () => {
+        const query = (inputEl.value || '').trim().toLowerCase();
+        const matches = customerNames.filter(name => !query || name.toLowerCase().includes(query));
+
+        if (matches.length === 0) {
+            box.style.display = 'none';
+            return;
+        }
+
+        box.innerHTML = matches.map(name => {
+            const safeName = name.replace(/'/g, "\\'");
+            return `<div onclick="window.__pickCustomerSuggestion('${inputEl.id}', '${safeName}')" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:13px; text-align:right; color:#2c3e50;" onmouseover="this.style.background='#fdf5e6'" onmouseout="this.style.background='#fff'">${name}</div>`;
+        }).join('');
+        box.style.display = 'block';
+    };
+
+    window.__pickCustomerSuggestion = window.__pickCustomerSuggestion || function(targetInputId, chosenName) {
+        const targetInput = document.getElementById(targetInputId);
+        const dropdownBox = document.getElementById(targetInputId + '_autocomplete_box');
+        if (targetInput) {
+            targetInput.value = chosenName;
+            targetInput.dispatchEvent(new Event('input'));
+        }
+        if (dropdownBox) dropdownBox.style.display = 'none';
+        if (typeof onSelectCallback === 'function') onSelectCallback(chosenName);
+    };
+
+    inputEl.removeEventListener('focus', renderMatches);
+    inputEl.removeEventListener('input', renderMatches);
+    inputEl.addEventListener('focus', renderMatches);
+    inputEl.addEventListener('input', renderMatches);
+
+    document.addEventListener('click', (e) => {
+        if (e.target !== inputEl && !box.contains(e.target)) {
+            box.style.display = 'none';
+        }
+    });
+}
+
+window.toggleDebtSubTab = function(tabType) {
+    activeDebtSubTab = (activeDebtSubTab === tabType) ? null : tabType;
+    updateDebtSubTabUI();
+};
+
+function updateDebtSubTabUI() {
+    const btnApproved = document.getElementById('btnSelectApprovedDebts');
+    const btnNew = document.getElementById('btnSelectNewDebts');
+    const panelApproved = document.getElementById('panelApprovedDebts');
+    const panelNew = document.getElementById('panelNewDebts');
+
+    if (btnApproved) {
+        const isSelected = activeDebtSubTab === 'approved';
+        btnApproved.style.background = isSelected ? '#27ae60' : '#f4fbf7';
+        btnApproved.style.color = isSelected ? '#fff' : '#1e8449';
+        btnApproved.style.borderColor = '#27ae60';
+        btnApproved.style.boxShadow = isSelected ? '0 4px 12px rgba(39,174,96,0.28)' : 'none';
+    }
+
+    if (btnNew) {
+        const isSelected = activeDebtSubTab === 'new';
+        btnNew.style.background = isSelected ? '#2980b9' : '#f2f8fc';
+        btnNew.style.color = isSelected ? '#fff' : '#1f618d';
+        btnNew.style.borderColor = '#2980b9';
+        btnNew.style.boxShadow = isSelected ? '0 4px 12px rgba(41,128,185,0.28)' : 'none';
+    }
+
+    if (panelApproved) panelApproved.style.display = (activeDebtSubTab === 'approved') ? 'block' : 'none';
+    if (panelNew) panelNew.style.display = (activeDebtSubTab === 'new') ? 'block' : 'none';
+}
+
+function buildDebtPanelContent(panelId, title, listItems, clearedCustomers) {
+    if (!listItems || listItems.length === 0) {
+        return `
+            <div id="${panelId}" style="display:none; background:#fff; border:1px solid #ddd; border-radius:8px; padding:14px; margin-top:12px;">
+                <h4 style="margin:0 0 8px 0; color:#2c3e50;">${title}</h4>
+                <p style="margin:0; color:#777; font-size:13px;">لا يوجد زبائن في هذه الخانة حالياً.</p>
+            </div>
+        `;
+    }
+
+    let rowsHtml = '';
+    listItems.forEach(item => {
+        const cust = item.name;
+        const remainingDebt = item.remainingDebt;
+        const safeCustBtn = cust.replace(/'/g, "\\'");
+
+        let materialsInner = '<span style="color:#888;">لا توجد مواد مفصلة</span>';
+        if (!clearedCustomers.includes(cust) && Array.isArray(item.entries) && item.entries.length > 0) {
+            const matRows = item.entries.map(en => `
+                <tr>
+                    <td style="padding:4px 8px; border:1px solid #e5e5e5; font-size:12px;">${en.matName}</td>
+                    <td style="padding:4px 8px; border:1px solid #e5e5e5; font-size:12px; color:#2980b9; font-weight:bold; text-align:center;">${en.qty.toFixed(2)} م3</td>
+                    <td style="padding:4px 8px; border:1px solid #e5e5e5; font-size:12px; color:#2c3e50; text-align:center;">${en.date}</td>
+                </tr>
+            `).join('');
+
+            materialsInner = `
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                    <table style="width:100%; border-collapse:collapse; background:#fafafa;">
+                        <thead>
+                            <tr style="background:#eef2f5;">
+                                <th style="padding:4px 8px; border:1px solid #e5e5e5; font-size:11px; text-align:right;">المادة</th>
+                                <th style="padding:4px 8px; border:1px solid #e5e5e5; font-size:11px; text-align:center;">الكمية</th>
+                                <th style="padding:4px 8px; border:1px solid #e5e5e5; font-size:11px; text-align:center;">التاريخ</th>
+                            </tr>
+                        </thead>
+                        <tbody>${matRows}</tbody>
+                    </table>
+                    <div style="text-align:left;">
+                        <button type="button" onclick="clearCustomerDebtMaterials('${safeCustBtn}')" title="إخفاء سجل المواد لهذا الزبون" style="background:#e67e22; color:white; border:none; padding:2px 8px; border-radius:3px; cursor:pointer; font-size:11px;">حذف المواد</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        rowsHtml += `
+            <tr data-customer-name="${cust.toLowerCase()}">
+                <td style="padding:10px; border:1px solid #ddd; vertical-align:top;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button type="button" onclick="openCustomerLedgerModal('${safeCustBtn}')" title="فتح كشف الحساب التفصيلي للزبون" style="background:none; border:none; color:#1f618d; text-decoration:underline; font-weight:bold; cursor:pointer; font-size:14px; padding:0;">
+                            ${cust} 📊
+                        </button>
+                        <button type="button" onclick="renameCustomerName('${safeCustBtn}')" title="تعديل اسم الزبون" style="background:#f39c12; color:white; border:none; padding:2px 8px; border-radius:4px; cursor:pointer; font-size:11px; white-space:nowrap;">
+                            ✏️ تعديل الاسم
+                        </button>
+                    </div>
+                </td>
+                <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-weight:bold; vertical-align:top;">$${remainingDebt.toFixed(2)}</td>
+                <td style="padding:10px; border:1px solid #ddd; vertical-align:top;">${materialsInner}</td>
+            </tr>
+        `;
+    });
+
+    return `
+        <div id="${panelId}" style="display:none; background:#fff; border:1px solid #ddd; border-radius:8px; padding:14px; margin-top:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h4 style="margin:0; color:#2c3e50;">${title}</h4>
+                <button type="button" onclick="toggleDebtSubTab(null)" style="background:#95a5a6; color:#fff; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:12px;">إغلاق الخانة ✖</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="items-table" style="width:100%; border-collapse: collapse; background:#fff;">
+                    <thead>
+                        <tr style="background:#f2f2f2;">
+                            <th style="padding:10px; border:1px solid #ddd; text-align:right; width:28%;">اسم الزبون / الشركة</th>
+                            <th style="padding:10px; border:1px solid #ddd; text-align:right; width:18%;">إجمالي الدين المتبقي ($)</th>
+                            <th style="padding:10px; border:1px solid #ddd; text-align:right; width:54%;">جدول المواد المسحوبة بالدين</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
 
 function loadDebtsTable() {
     const debtsContainer = document.getElementById('debtsListTable');
@@ -544,44 +1209,77 @@ function loadDebtsTable() {
     let clearedCustomers = JSON.parse(localStorage.getItem(clearedKey) || '[]');
 
     Promise.all([
-        invoicesCollection.where('quarryName', '==', currentQuarry).get(), 
+        invoicesCollection.where('quarryName', '==', currentQuarry).get(),
         repaymentsCollection.where('quarryName', '==', currentQuarry).get()
     ]).then(([invSnap, repSnap]) => {
 
         let customersDebtMap = {};
-        let customersMaterialsMap = {};
+        let customersEntriesMap = {};
+        let customerHistoryCount = {};
         let repaymentsList = [];
+        const seenInvIds = new Set();
+        const seenRepIds = new Set();
 
-        invSnap.forEach(doc => {
-            const inv = doc.data();
-            if (inv.paymentStatus === 'دين' && inv.customerName) {
-                let name = inv.customerName.trim();
-                let amount = Number(inv.grandTotal || 0);
+        const recordInvoiceForCustomer = (inv) => {
+            if (!inv.customerName) return;
+            const name = inv.customerName.trim();
+            if (!name) return;
+
+            customerHistoryCount[name] = (customerHistoryCount[name] || 0) + 1;
+
+            if (inv.paymentStatus === 'دين') {
+                const amount = Number(inv.grandTotal || 0);
                 customersDebtMap[name] = (customersDebtMap[name] || 0) + amount;
 
-                if (!customersMaterialsMap[name]) {
-                    customersMaterialsMap[name] = {};
-                }
-
-                if (inv.items && Array.isArray(inv.items)) {
+                if (!customersEntriesMap[name]) customersEntriesMap[name] = [];
+                if (Array.isArray(inv.items)) {
                     inv.items.forEach(item => {
-                        let matName = (item.name || 'مادة عامة').trim();
-                        let qty = Number(item.qty || 0);
-                        customersMaterialsMap[name][matName] = (customersMaterialsMap[name][matName] || 0) + qty;
+                        customersEntriesMap[name].push({
+                            matName: (item.name || 'مادة عامة').trim(),
+                            qty: Number(item.qty || 0),
+                            date: inv.date || inv.isoDate || '---'
+                        });
                     });
                 }
             }
+        };
+
+        invSnap.forEach(doc => {
+            const inv = doc.data();
+            seenInvIds.add(doc.id);
+            if (inv.localId) seenInvIds.add(inv.localId);
+            recordInvoiceForCustomer(inv);
         });
 
-        repSnap.forEach(doc => {
-            const rep = doc.data();
-            repaymentsList.push({ id: doc.id, ...rep });
-            let name = (rep.customerName || '').trim();
-            let amount = Number(rep.amount || 0);
+        getPendingItemsByType('invoice', currentQuarry).forEach(inv => {
+            if (!seenInvIds.has(inv._localId)) {
+                recordInvoiceForCustomer(inv);
+            }
+        });
+
+        const recordRepaymentForCustomer = (rep, idForRow) => {
+            const name = (rep.customerName || '').trim();
+            if (!name) return;
+            customerHistoryCount[name] = (customerHistoryCount[name] || 0) + 1;
+            repaymentsList.push({ id: idForRow, ...rep });
+            const amount = Number(rep.amount || 0);
             if (customersDebtMap[name] !== undefined) {
                 customersDebtMap[name] -= amount;
             } else {
                 customersDebtMap[name] = -amount;
+            }
+        };
+
+        repSnap.forEach(doc => {
+            const rep = doc.data();
+            seenRepIds.add(doc.id);
+            if (rep.localId) seenRepIds.add(rep.localId);
+            recordRepaymentForCustomer(rep, doc.id);
+        });
+
+        getPendingItemsByType('repayment', currentQuarry).forEach(rep => {
+            if (!seenRepIds.has(rep._localId)) {
+                recordRepaymentForCustomer(rep, rep._localId);
             }
         });
 
@@ -602,9 +1300,10 @@ function loadDebtsTable() {
                         <tbody>
                 `;
                 repaymentsList.slice().reverse().forEach(rep => {
+                    const pendingTag = rep._isOfflinePending ? ` <span style="background:#f39c12; color:#fff; font-size:10px; padding:1px 6px; border-radius:3px;">بانتظار الإرسال</span>` : '';
                     repHtml += `
                         <tr>
-                            <td style="padding:8px; border:1px solid #ddd;"><b>${rep.customerName}</b></td>
+                            <td style="padding:8px; border:1px solid #ddd;"><b>${rep.customerName}</b>${pendingTag}</td>
                             <td style="padding:8px; border:1px solid #ddd; color:#27ae60; font-weight:bold;">$${Number(rep.amount).toFixed(2)}</td>
                             <td style="padding:8px; border:1px solid #ddd;">${rep.date}</td>
                             <td style="padding:8px; border:1px solid #ddd; text-align:center;">
@@ -618,94 +1317,137 @@ function loadDebtsTable() {
             }
         }
 
-        let debtHtml = `
-            <table class="items-table" style="width:100%; border-collapse: collapse; background:#fff;">
-                <thead>
-                    <tr style="background:#f2f2f2;">
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">اسم الزبون / الشركة</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">إجمالي الدين المتبقي ($)</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">المواد والكميات المسحوبة بالدين</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-let hasDebt = false;
+        const approvedCustomers = [];
+        const newCustomers = [];
+        let approvedTotal = 0;
+        let newTotal = 0;
         let totalGeneralDebt = 0;
-        for (let cust in customersDebtMap) {
-            let remainingDebt = Number(customersDebtMap[cust] || 0);
+        const allDebtCustomerNames = [];
 
-            // إذا تم سداد كامل الدين (الرصيد صفر أو أقل)، نحذفه من قائمة المواد المحذوفة يدوياً ونخفيه من الجدول
+        for (let cust in customersDebtMap) {
+            const remainingDebt = Number(customersDebtMap[cust] || 0);
             if (remainingDebt <= 0) {
                 clearedCustomers = clearedCustomers.filter(c => c !== cust);
                 localStorage.setItem(clearedKey, JSON.stringify(clearedCustomers));
                 continue;
             }
 
-            hasDebt = true;
-totalGeneralDebt += remainingDebt;
-            let materialsText = '---';
-            if (!clearedCustomers.includes(cust) && customersMaterialsMap[cust]) {
-                let parts = [];
-                for (let mat in customersMaterialsMap[cust]) {
-                    let q = customersMaterialsMap[cust][mat];
-                    parts.push(`${mat}: <b>${q.toFixed(2)} م3</b>`);
-                }
-                if (parts.length > 0) {
-                    const safeCust = cust.replace(/'/g, "\\'");
-                    materialsText = `
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                            <span>${parts.join(' ، ')}</span>
-                            <button type="button" onclick="clearCustomerDebtMaterials('${safeCust}')" title="إخفاء سجل المواد لهذا الزبون" style="background:#e67e22; color:white; border:none; padding:2px 7px; border-radius:3px; cursor:pointer; font-size:11px; white-space:nowrap;">حذف المواد</button>
-                        </div>
-                    `;
-                }
+            totalGeneralDebt += remainingDebt;
+            allDebtCustomerNames.push(cust);
+
+            const itemObj = {
+                name: cust,
+                remainingDebt: remainingDebt,
+                entries: customersEntriesMap[cust] || []
+            };
+
+            if ((customerHistoryCount[cust] || 0) > 1) {
+                approvedCustomers.push(itemObj);
+                approvedTotal += remainingDebt;
+            } else {
+                newCustomers.push(itemObj);
+                newTotal += remainingDebt;
             }
-
-            debtHtml += `
-                <tr>
-                    <td style="padding:10px; border:1px solid #ddd;"><b>${cust}</b></td>
-                    <td style="padding:10px; border:1px solid #ddd; color:#c0392b; font-weight:bold;">$${remainingDebt.toFixed(2)}</td>
-                    <td style="padding:10px; border:1px solid #ddd; font-size:13px;">${materialsText}</td>
-                </tr>
-            `;
         }
 
-        if (!hasDebt) {
-            debtHtml += `<tr><td colspan="3" style="text-align:center; padding:10px; color:#666;">لا توجد ديون مترتبة على الزبائن حالياً</td></tr>`;
+        // خانات متجاورة بجانب بعضها: تظهر فقط كخانات وتفتح محتواها عند الاختيار
+        const cardsRowHtml = `
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+                <button type="button" id="btnSelectApprovedDebts" onclick="toggleDebtSubTab('approved')" style="flex:1; min-width:230px; padding:14px 18px; border-radius:8px; border:2px solid #27ae60; background:#f4fbf7; color:#1e8449; cursor:pointer; text-align:right; display:flex; justify-content:space-between; align-items:center; transition:all 0.2s;">
+                    <div>
+                        <div style="font-size:15px; font-weight:bold;">✅ الزبائن المعتمدون</div>
+                        <div style="font-size:12px; opacity:0.85; margin-top:3px;">أصحاب سجل سابق (${approvedCustomers.length}) — اضغط للعرض</div>
+                    </div>
+                    <span style="font-size:15px; font-weight:bold;">$${approvedTotal.toFixed(2)}</span>
+                </button>
+
+                <button type="button" id="btnSelectNewDebts" onclick="toggleDebtSubTab('new')" style="flex:1; min-width:230px; padding:14px 18px; border-radius:8px; border:2px solid #2980b9; background:#f2f8fc; color:#1f618d; cursor:pointer; text-align:right; display:flex; justify-content:space-between; align-items:center; transition:all 0.2s;">
+                    <div>
+                        <div style="font-size:15px; font-weight:bold;">🆕 الزبائن الجدد</div>
+                        <div style="font-size:12px; opacity:0.85; margin-top:3px;">سحب بالدين لأول مرة (${newCustomers.length}) — اضغط للعرض</div>
+                    </div>
+                    <span style="font-size:15px; font-weight:bold;">$${newTotal.toFixed(2)}</span>
+                </button>
+            </div>
+        `;
+
+        const approvedPanelHtml = buildDebtPanelContent(
+            'panelApprovedDebts',
+            'الزبائن المعتمدون (أصحاب سجل سابق)',
+            approvedCustomers,
+            clearedCustomers
+        );
+
+        const newPanelHtml = buildDebtPanelContent(
+            'panelNewDebts',
+            'الزبائن الجدد (سحب بالدين لأول مرة)',
+            newCustomers,
+            clearedCustomers
+        );
+
+        debtsContainer.innerHTML = cardsRowHtml + approvedPanelHtml + newPanelHtml;
+        updateDebtSubTabUI();
+
+        const totalGeneralDebtsEl = document.getElementById('totalGeneralDebts');
+        if (totalGeneralDebtsEl) {
+            totalGeneralDebtsEl.innerText = `${totalGeneralDebt.toFixed(2)} $`;
         }
-        debtHtml += `</tbody></table>`;
-        debtsContainer.innerHTML = debtHtml;
-const totalGeneralDebtsEl = document.getElementById('totalGeneralDebts');
-if (totalGeneralDebtsEl) {
-    totalGeneralDebtsEl.innerText = `${totalGeneralDebt.toFixed(2)} $`;
-}
+
+        buildCustomerAutocompleteList(document.getElementById('searchDebtCustomer'), allDebtCustomerNames, () => {
+            window.filterDebts();
+        });
+        buildCustomerAutocompleteList(document.getElementById('repaidCustomerName'), allDebtCustomerNames);
+        window.filterDebts();
     }).catch(err => {
         console.error("خطأ في جلب بيانات الديون: ", err);
     });
 }
 
+window.filterDebts = function() {
+    const searchEl = document.getElementById('searchDebtCustomer');
+    const query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    const rows = document.querySelectorAll('#debtsListTable tbody tr[data-customer-name]');
+
+    let matchedInApproved = false;
+    let matchedInNew = false;
+
+    rows.forEach(row => {
+        const custName = (row.getAttribute('data-customer-name') || '').toLowerCase();
+        const isMatch = (!query || custName.includes(query));
+        row.style.display = isMatch ? '' : 'none';
+
+        if (query && isMatch) {
+            if (row.closest('#panelApprovedDebts')) matchedInApproved = true;
+            if (row.closest('#panelNewDebts')) matchedInNew = true;
+        }
+    });
+
+    if (query) {
+        if (matchedInApproved) {
+            activeDebtSubTab = 'approved';
+            updateDebtSubTabUI();
+        } else if (matchedInNew) {
+            activeDebtSubTab = 'new';
+            updateDebtSubTabUI();
+        }
+    }
+};
+
 window.deleteRepayment = function(id) {
     if (confirm("هل تريد حذف هذه الدفعة المحصلة نهائياً؟")) {
+        const filteredQueue = getOfflineQueue().filter(q => q.queueId !== id);
+        if (filteredQueue.length !== getOfflineQueue().length) {
+            saveOfflineQueue(filteredQueue);
+            loadDebtsTable();
+            calculateCashflow();
+            return;
+        }
         repaymentsCollection.doc(id).delete().then(() => {
             alert("تم الحذف بنجاح!");
             loadDebtsTable();
             calculateCashflow();
         }).catch(err => console.error("خطأ في الحذف: ", err));
     }
-};
-
-window.filterDebts = function() {
-    let input = document.getElementById('searchDebtCustomer').value.toLowerCase();
-    let rows = document.querySelectorAll('#debtsListTable tbody tr');
-    rows.forEach(row => {
-        let name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
-        if (name.includes(input)) {
-            row.style.display = "";
-        } else {
-            row.style.display = "none";
-        }
-    });
 };
 
 function calculateCashflow() {
@@ -722,17 +1464,23 @@ function calculateCashflow() {
     if (!currentQuarry) return;
 
     Promise.all([
-        invoicesCollection.where('quarryName', '==', currentQuarry).get(), 
-        repaymentsCollection.where('quarryName', '==', currentQuarry).get(), 
+        invoicesCollection.where('quarryName', '==', currentQuarry).get(),
+        repaymentsCollection.where('quarryName', '==', currentQuarry).get(),
         expensesCollection.where('quarryName', '==', currentQuarry).get()
     ]).then(([querySnapshot, repSnap, expSnap]) => {
         let totalCashSales = 0;
         let totalNewDebts = 0;
         let totalRepaidDebts = 0;
         let totalExpenses = 0;
+        const seenInv = new Set();
+        const seenRep = new Set();
+        const seenExp = new Set();
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
+            seenInv.add(doc.id);
+            if (inv.localId) seenInv.add(inv.localId);
+
             if (inv.isoDate === selectedDateStr || inv.date === selectedDateStr) {
                 const amount = Number(inv.grandTotal || 0);
                 if (inv.paymentStatus === 'دين') {
@@ -743,17 +1491,45 @@ function calculateCashflow() {
             }
         });
 
-        // تم تصحيح اسم المتغير هنا إلى repSnap بدلاً من repSnapshot
+        getPendingItemsByType('invoice', currentQuarry).forEach((inv) => {
+            if (!seenInv.has(inv._localId) && (inv.isoDate === selectedDateStr || inv.date === selectedDateStr)) {
+                const amount = Number(inv.grandTotal || 0);
+                if (inv.paymentStatus === 'دين') {
+                    totalNewDebts += amount;
+                } else {
+                    totalCashSales += amount;
+                }
+            }
+        });
+
         repSnap.forEach((doc) => {
             const rep = doc.data();
+            seenRep.add(doc.id);
+            if (rep.localId) seenRep.add(rep.localId);
+
             if (rep.date === selectedDateStr) {
+                totalRepaidDebts += Number(rep.amount || 0);
+            }
+        });
+
+        getPendingItemsByType('repayment', currentQuarry).forEach((rep) => {
+            if (!seenRep.has(rep._localId) && rep.date === selectedDateStr) {
                 totalRepaidDebts += Number(rep.amount || 0);
             }
         });
 
         expSnap.forEach((doc) => {
             const exp = doc.data();
+            seenExp.add(doc.id);
+            if (exp.localId) seenExp.add(exp.localId);
+
             if (exp.isoDate === selectedDateStr || exp.date === selectedDateStr) {
+                totalExpenses += Number(exp.amount || 0);
+            }
+        });
+
+        getPendingItemsByType('expense', currentQuarry).forEach((exp) => {
+            if (!seenExp.has(exp._localId) && (exp.isoDate === selectedDateStr || exp.date === selectedDateStr)) {
                 totalExpenses += Number(exp.amount || 0);
             }
         });
@@ -773,7 +1549,6 @@ function calculateCashflow() {
         if (finalCashBalanceEl) {
             finalCashBalanceEl.innerText = `$${netTotal.toFixed(2)}`;
         }
-
     }).catch((error) => {
         console.error("خطأ في حساب حركة الصندوق: ", error);
     });
@@ -793,10 +1568,21 @@ function loadInvoices() {
 
     invoicesCollection.get().then((querySnapshot) => {
         let invoicesList = [];
+        const seenIds = new Set();
+
         querySnapshot.forEach((doc) => {
             const invData = doc.data();
+            seenIds.add(doc.id);
+            if (invData.localId) seenIds.add(invData.localId);
+
             if (!myQuarryName || invData.quarryName === myQuarryName) {
                 invoicesList.push({ firebaseId: doc.id, ...invData });
+            }
+        });
+
+        getPendingItemsByType('invoice', myQuarryName).forEach((invData) => {
+            if (!seenIds.has(invData._localId)) {
+                invoicesList.push({ firebaseId: invData._localId, ...invData });
             }
         });
 
@@ -810,12 +1596,11 @@ function loadInvoices() {
             let numB = Number(b.queueNumber || (b.turnNumber ? b.turnNumber.replace(/\D/g, '') : 1));
             return numA - numB;
         });
-        
+
         calculateCashflow();
 
         if (archiveContainer) {
-            // إعادة بناء رأس الجدول بشكل صحيح ومنظم
-           let html = `
+            let html = `
     <table class="items-table" style="width: 100%; margin-top: 10px; border-collapse: collapse;">
         <thead>
             <tr style="background: #8B5A2B; color: white;">
@@ -840,10 +1625,11 @@ function loadInvoices() {
                         itemsSummary += `<div>${it.name || ''}: ${it.qty || 0}م3 × $${it.price || 0}</div>`;
                     });
                 }
+                const pendingBadge = inv._isOfflinePending ? `<div style="font-size:10px; color:#d35400;">⏳ بانتظار المزامنة</div>` : '';
 
                 html += `
                     <tr>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>${inv.quarryName || 'غير مسمى'}</b></td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>${inv.quarryName || 'غير مسمى'}</b>${pendingBadge}</td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>#${inv.turnNumber || inv.queueNumber || 1}</b></td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${inv.date || '---'}</td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>${inv.customerName || '---'}</b></td>
@@ -865,10 +1651,19 @@ function loadInvoices() {
         console.error("خطأ في جلب الأرشيف: ", error);
     });
 }
+
 window.deleteInvoice = function(firebaseId) {
     if (!firebaseId) return;
-    
+
     if (confirm("هل أنت متأكد من حذف هذه الفاتورة نهائياً من السحابة؟")) {
+        const filteredQueue = getOfflineQueue().filter(q => q.queueId !== firebaseId);
+        if (filteredQueue.length !== getOfflineQueue().length) {
+            saveOfflineQueue(filteredQueue);
+            loadInvoices();
+            loadDebtsTable();
+            calculateCashflow();
+            return;
+        }
         db.collection("invoices").doc(firebaseId).delete().then(() => {
             alert("تم الحذف بنجاح!");
             loadInvoices();
@@ -941,7 +1736,7 @@ function resetForm() {
                 </select>
             </td>
             <td><input type="number" class="item-qty" value="" min="0"></td>
-<td><input type="number" class="item-price" value="" min="0"></td>
+            <td><input type="number" class="item-price" value="" min="0"></td>
             <td><input type="text" class="item-total" value="0.00 $" readonly></td>
             <td><button type="button" class="btn-del-row" onclick="removeRow(this)">X</button></td>
         </tr>
@@ -956,35 +1751,57 @@ document.addEventListener("DOMContentLoaded", () => {
     loadInvoices();
     loadDebtsTable();
     loadExpensesTable();
-    loadDailyMaterialsStats(); // تم إضافة استدعاء جدول الإحصاء اليومي هنا
+    loadDailyMaterialsStats();
 });
+
 // دالة تحميل وحساب إحصاء المواد المباعة اليومية حسب التاريخ
 function loadDailyMaterialsStats() {
     const dateFilterEl = document.getElementById('dailyMaterialsDateFilter');
     const dailyBody = document.getElementById('dailyMaterialsStatsBody');
     if (!dailyBody) return;
 
-    // جلب اسم المقلع الحالي لضمان العزل التام
     const currentQuarry = localStorage.getItem('savedQuarryName') || '';
     if (!currentQuarry) return;
 
     let selectedDateStr = dateFilterEl && dateFilterEl.value ? dateFilterEl.value : new Date().toLocaleDateString('en-CA');
 
-    // إضافة شرط العزل `.where('quarryName', '==', currentQuarry)` لجلب فواتير المقلع الحالي فقط
     invoicesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
         let dailyMaterialsMap = {};
         let dayTotalQty = 0;
         let dayTotalMoney = 0;
+        const seenIds = new Set();
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
+            seenIds.add(doc.id);
+            if (inv.localId) seenIds.add(inv.localId);
+
             if (inv.isoDate === selectedDateStr || inv.date === selectedDateStr) {
                 if (inv.items && Array.isArray(inv.items)) {
                     inv.items.forEach(item => {
                         let name = item.name || 'مادة عامة';
                         let qty = Number(item.qty || 0);
                         let total = Number(item.total || 0);
-                        
+
+                        if (!dailyMaterialsMap[name]) dailyMaterialsMap[name] = { qty: 0, total: 0 };
+                        dailyMaterialsMap[name].qty += qty;
+                        dailyMaterialsMap[name].total += total;
+
+                        dayTotalQty += qty;
+                        dayTotalMoney += total;
+                    });
+                }
+            }
+        });
+
+        getPendingItemsByType('invoice', currentQuarry).forEach((inv) => {
+            if (!seenIds.has(inv._localId) && (inv.isoDate === selectedDateStr || inv.date === selectedDateStr)) {
+                if (inv.items && Array.isArray(inv.items)) {
+                    inv.items.forEach(item => {
+                        let name = item.name || 'مادة عامة';
+                        let qty = Number(item.qty || 0);
+                        let total = Number(item.total || 0);
+
                         if (!dailyMaterialsMap[name]) dailyMaterialsMap[name] = { qty: 0, total: 0 };
                         dailyMaterialsMap[name].qty += qty;
                         dailyMaterialsMap[name].total += total;
@@ -1024,12 +1841,12 @@ function loadDailyMaterialsStats() {
         console.error("خطأ في جلب بيانات إحصاء اليوم:", error);
     });
 }
+
 // دالة تحميل وحساب الإحصاء التراكمي الشامل (منذ بدء التشغيل / لكل الفترات)
 function loadComprehensiveMaterialsStats() {
     let comprehensiveBody = document.getElementById('comprehensiveMaterialsStatsBody');
-    
+
     if (!comprehensiveBody) {
-        const statsTitle = document.querySelector('h3, h4'); 
         const tables = document.querySelectorAll('table');
         if (tables.length > 0) {
             let compTable = tables[0];
@@ -1042,27 +1859,46 @@ function loadComprehensiveMaterialsStats() {
             comprehensiveBody = tBody;
         }
     }
-    
+
     if (!comprehensiveBody) return;
 
-    // جلب اسم المقلع الحالي لضمان العزل التام وعدم تداخل البيانات بين المقالع
     const currentQuarry = localStorage.getItem('savedQuarryName') || '';
     if (!currentQuarry) return;
 
-    // إضافة شرط العزل `.where('quarryName', '==', currentQuarry)` لجلب مبيعات المقلع الحالي فقط
     invoicesCollection.where('quarryName', '==', currentQuarry).get().then((querySnapshot) => {
         let comprehensiveMap = {};
         let totalQtyAll = 0;
         let totalMoneyAll = 0;
+        const seenIds = new Set();
 
         querySnapshot.forEach((doc) => {
             const inv = doc.data();
+            seenIds.add(doc.id);
+            if (inv.localId) seenIds.add(inv.localId);
+
             if (inv.items && Array.isArray(inv.items)) {
                 inv.items.forEach(item => {
                     let name = item.name || 'مادة عامة';
                     let qty = Number(item.qty || 0);
                     let total = Number(item.total || 0);
-                    
+
+                    if (!comprehensiveMap[name]) comprehensiveMap[name] = { qty: 0, total: 0 };
+                    comprehensiveMap[name].qty += qty;
+                    comprehensiveMap[name].total += total;
+
+                    totalQtyAll += qty;
+                    totalMoneyAll += total;
+                });
+            }
+        });
+
+        getPendingItemsByType('invoice', currentQuarry).forEach((inv) => {
+            if (!seenIds.has(inv._localId) && inv.items && Array.isArray(inv.items)) {
+                inv.items.forEach(item => {
+                    let name = item.name || 'مادة عامة';
+                    let qty = Number(item.qty || 0);
+                    let total = Number(item.total || 0);
+
                     if (!comprehensiveMap[name]) comprehensiveMap[name] = { qty: 0, total: 0 };
                     comprehensiveMap[name].qty += qty;
                     comprehensiveMap[name].total += total;
@@ -1101,6 +1937,7 @@ function loadComprehensiveMaterialsStats() {
         console.error("خطأ في جلب البيانات التراكمية:", error);
     });
 }
+
 // دالة تحميل وحساب إحصاء المواد المباعة خلال فترة محددة (من تاريخ إلى تاريخ)
 function loadRangeMaterialsStats() {
     const startDateInput = document.getElementById('rangeStartDate').value;
@@ -1109,13 +1946,11 @@ function loadRangeMaterialsStats() {
 
     if (!rangeBody) return;
 
-    // التحقق من إدخال التواريخ
     if (!startDateInput || !endDateInput) {
         alert('الرجاء تحديد تاريخ البداية وتاريخ النهاية معاً!');
         return;
     }
 
-    // تحويل التواريخ المدخلة إلى صيغة مقارنة (مقارنة النصوص YYYY-MM-DD تعمل بكفاءة عالية)
     if (startDateInput > endDateInput) {
         alert('تاريخ البداية يجب أن يكون قبل تاريخ النهاية أو مساوياً له!');
         return;
@@ -1123,30 +1958,26 @@ function loadRangeMaterialsStats() {
 
     rangeBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:15px; color:#666;">جاري تحميل وعرض البيانات...</td></tr>`;
 
+    const currentQuarry = localStorage.getItem('savedQuarryName') || '';
+
     invoicesCollection.get().then((querySnapshot) => {
         let rangeMap = {};
         let totalQtyRange = 0;
         let totalMoneyRange = 0;
-        let countMatched = 0;
+        const seenIds = new Set();
 
-        querySnapshot.forEach((doc) => {
-            const inv = doc.data();
-            
-            // استخراج التاريخ من الفاتورة (تأكد أن حقل التاريخ في الفاتورة لديك يخزن بصيغة YYYY-MM-DD مثل inv.date أو inv.invoiceDate)
-            // إذا كان اسم الحقل مختلفاً لديك (مثلاً inv.createdAt أو inv.date)، استبدله هنا:
-            let invDate = inv.date || inv.invoiceDate || '';
-            
-            // إذا كان التاريخ مخزناً كـ Firebase Timestamp، نقوم بتحويله لـ string
+        const processInvoiceForRange = (inv) => {
+            if (currentQuarry && inv.quarryName && inv.quarryName !== currentQuarry) return;
+
+            let invDate = inv.isoDate || inv.date || inv.invoiceDate || '';
             if (invDate && typeof invDate.toDate === 'function') {
                 invDate = invDate.toDate().toISOString().split('T')[0];
-            } else if (invDate && invDate.includes('T')) {
+            } else if (invDate && typeof invDate === 'string' && invDate.includes('T')) {
                 invDate = invDate.split('T')[0];
             }
 
-            // فحص ما إذا كانت الفاتورة تقع ضمن النمط (من تاريخ إلى تاريخ شاملة)
             if (invDate && invDate >= startDateInput && invDate <= endDateInput) {
                 if (inv.items && Array.isArray(inv.items)) {
-                    countMatched++;
                     inv.items.forEach(item => {
                         let name = item.name || 'مادة عامة';
                         let qty = Number(item.qty || 0);
@@ -1160,6 +1991,19 @@ function loadRangeMaterialsStats() {
                         totalMoneyRange += total;
                     });
                 }
+            }
+        };
+
+        querySnapshot.forEach((doc) => {
+            const inv = doc.data();
+            seenIds.add(doc.id);
+            if (inv.localId) seenIds.add(inv.localId);
+            processInvoiceForRange(inv);
+        });
+
+        getPendingItemsByType('invoice', currentQuarry).forEach((inv) => {
+            if (!seenIds.has(inv._localId)) {
+                processInvoiceForRange(inv);
             }
         });
 
@@ -1208,6 +2052,7 @@ window.switchTab = function(tabName) {
         loadComprehensiveMaterialsStats();
     }
 };
+
 // حفظ وتثبيت هوية المقلع الكاملة (الاسم + العنوان + الهاتف)
 function saveQuarryNameSetting() {
     const nameVal = document.getElementById('quarryName').value.trim();
@@ -1236,33 +2081,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (savedAddress && document.getElementById('quarryAddress')) document.getElementById('quarryAddress').value = savedAddress;
     if (savedPhone && document.getElementById('quarryPhone')) document.getElementById('quarryPhone').value = savedPhone;
 });
+
 // دالة فحص الرسائل الجديدة والتنبيهات من المشرف العام
 function checkNewMessages() {
     const myQuarryName = localStorage.getItem('savedQuarryName');
     if (!myQuarryName) return;
 
-    // جلب الرسائل من التخزين المحلي
     const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
-    
-    // عد الرسائل الواردة من المشرف العام والتي لم يتم قراءتها (أو إجمالي الرسائل الجديدة)
-    // يمكنك تعديل الشرط بحسب رغبتك (مثلاً الرسائل التي يكون مرسلها "المشرف العام" وموجهة لمقلك الحالي)
     const unreadCount = msgs.filter(m => m.receiver === myQuarryName && m.sender === "المشرف العام" && !m.read).length;
 
     const badge = document.getElementById('msgBadge');
     if (badge) {
         if (unreadCount > 0) {
             badge.innerText = unreadCount;
-            badge.style.display = 'inline-block'; // إظهار الشارة الحمراء
+            badge.style.display = 'inline-block';
         } else {
-            badge.style.display = 'none'; // إخفاء الشارة في حال عدم وجود رسائل جديدة
+            badge.style.display = 'none';
         }
     }
 }
 
-// تشغيل دالة الفحص تلقائياً كل بضع ثوانٍ لضمان التحديث الفوري
 setInterval(checkNewMessages, 3000);
 
-// تشغيلها أيضاً فور فتح الصفحة
 document.addEventListener("DOMContentLoaded", () => {
     checkNewMessages();
 });
