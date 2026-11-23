@@ -2403,3 +2403,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (savedAddress && document.getElementById('quarryAddress')) document.getElementById('quarryAddress').value = savedAddress;
     if (savedPhone && document.getElementById('quarryPhone')) document.getElementById('quarryPhone').value = savedPhone;
 });
+// إخفاء شارة المزامنة والنوافذ المنبثقة فقط أثناء الطباعة لمنع سحب ورق إضافي
+(function addPrintFixStyle() {
+    if (document.getElementById('thermalReceiptPrintFixStyle')) return;
+    const style = document.createElement('style');
+    style.id = 'thermalReceiptPrintFixStyle';
+    style.textContent = `
+        @media print {
+            #offlineSyncBadge,
+            #customerLedgerModal,
+            #editInvoiceModal {
+                display: none !important;
+                visibility: hidden !important;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+})();
