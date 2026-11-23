@@ -26,8 +26,12 @@ db.enablePersistence()
 const invoicesCollection = db.collection("invoices");
 const repaymentsCollection = db.collection("repayments");
 const expensesCollection = db.collection("expenses");
+const quarriesCollection = db.collection("quarries");
+const messagesCollection = db.collection("messages");
+
 let currentEditId = null;
 let activeDebtSubTab = null; // null = مطوي افتراضياً | 'approved' | 'new'
+let latestArchiveInvoicesCache = [];
 
 // ==========================================
 // نظام العمل أوفلاين + طابور المزامنة للمشرف العام
@@ -50,16 +54,20 @@ function saveOfflineQueue(queue) {
 function enqueueOfflineAction(type, collectionName, payload, localId) {
     const queue = getOfflineQueue();
     const id = localId || (type + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
-    if (!queue.some(item => item.queueId === id)) {
-        queue.push({
-            queueId: id,
-            type: type, // 'invoice' | 'repayment' | 'expense'
-            collectionName: collectionName,
-            payload: Object.assign({}, payload, { localId: id }),
-            createdAt: Date.now()
-        });
-        saveOfflineQueue(queue);
+    const existingIdx = queue.findIndex(item => item.queueId === id);
+    const entryObj = {
+        queueId: id,
+        type: type, // 'invoice' | 'repayment' | 'expense' | 'quarry'
+        collectionName: collectionName,
+        payload: Object.assign({}, payload, { localId: id }),
+        createdAt: Date.now()
+    };
+    if (existingIdx >= 0) {
+        queue[existingIdx] = entryObj;
+    } else {
+        queue.push(entryObj);
     }
+    saveOfflineQueue(queue);
 }
 
 function getPendingItemsByType(type, quarryName = '') {
@@ -126,7 +134,8 @@ window.syncOfflineQueueToFirestore = async function(showAlertIfEmpty = false) {
     for (const item of queue) {
         try {
             const targetCol = db.collection(item.collectionName);
-            await targetCol.doc(item.queueId).set(item.payload, { merge: true });
+            const docId = item.payload && item.payload.firestoreDocId ? item.payload.firestoreDocId : item.queueId;
+            await targetCol.doc(docId).set(item.payload, { merge: true });
         } catch (err) {
             console.error("فشل مزامنة عنصر من الطابور:", item.queueId, err);
             remaining.push(item);
@@ -331,6 +340,7 @@ if (btnSaveAndPrintEl) {
 
         const newInvoice = {
             localId: localInvoiceId,
+            firestoreDocId: localInvoiceId,
             queueNumber: currentQueueNum,
             turnNumber: currentTurn,
             quarryName,
@@ -1350,7 +1360,6 @@ function loadDebtsTable() {
             }
         }
 
-        // خانات متجاورة بجانب بعضها: تظهر فقط كخانات وتفتح محتواها عند الاختيار
         const cardsRowHtml = `
             <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
                 <button type="button" id="btnSelectApprovedDebts" onclick="toggleDebtSubTab('approved')" style="flex:1; min-width:230px; padding:14px 18px; border-radius:8px; border:2px solid #27ae60; background:#f4fbf7; color:#1e8449; cursor:pointer; text-align:right; display:flex; justify-content:space-between; align-items:center; transition:all 0.2s;">
@@ -1561,6 +1570,199 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
+// ==========================================
+// تعديل الفواتير مباشرة من الأرشيف (الكمية، السعر، حالة الدفع نقداً/دين، الاسم، السائق)
+// ==========================================
+window.openEditInvoiceModal = function(invoiceId) {
+    const inv = latestArchiveInvoicesCache.find(item => String(item.firebaseId) === String(invoiceId) || String(item.localId) === String(invoiceId));
+    if (!inv) {
+        alert("تعذر العثور على الفاتورة المطلوبة للتعديل.");
+        return;
+    }
+
+    const itemsList = Array.isArray(inv.items) && inv.items.length > 0
+        ? inv.items
+        : [{ name: 'مواد عامة', qty: 0, price: 0, total: Number(inv.grandTotal || 0) }];
+
+    const itemsRowsHtml = itemsList.map((it, idx) => {
+        const qty = Number(it.qty || 0);
+        const price = Number(it.price || 0);
+        const lineTotal = (qty * price) || Number(it.total || 0);
+        return `
+            <tr class="edit-inv-item-row">
+                <td style="padding:7px; border:1px solid #ccc;">
+                    <input type="text" class="edit-inv-mat-name" value="${(it.name || '').replace(/"/g, '&quot;')}" style="width:100%; padding:5px; border:1px solid #bbb; border-radius:4px;">
+                </td>
+                <td style="padding:7px; border:1px solid #ccc;">
+                    <input type="number" step="any" min="0" class="edit-inv-mat-qty" value="${qty}" oninput="window.__recalcEditInvoiceModalTotal()" style="width:90px; padding:5px; border:1px solid #bbb; border-radius:4px; text-align:center;">
+                </td>
+                <td style="padding:7px; border:1px solid #ccc;">
+                    <input type="number" step="any" min="0" class="edit-inv-mat-price" value="${price}" oninput="window.__recalcEditInvoiceModalTotal()" style="width:90px; padding:5px; border:1px solid #bbb; border-radius:4px; text-align:center;">
+                </td>
+                <td style="padding:7px; border:1px solid #ccc; text-align:center; font-weight:bold; color:#2c3e50;" class="edit-inv-mat-total">$${lineTotal.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    let modal = document.getElementById('editInvoiceModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'editInvoiceModal';
+        modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.58); z-index:10001; display:flex; align-items:center; justify-content:center; padding:16px;';
+        document.body.appendChild(modal);
+    }
+
+    const currentStatus = inv.paymentStatus === 'دين' ? 'دين' : 'نقداً';
+    const safeDocId = String(inv.firebaseId || inv.localId || '').replace(/'/g, "\\'");
+
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div style="background:#fff; width:100%; max-width:780px; max-height:90vh; overflow:auto; border-radius:8px; padding:18px; box-shadow:0 8px 28px rgba(0,0,0,0.35); direction:rtl;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #8B5A2B; padding-bottom:10px; margin-bottom:14px;">
+                <div>
+                    <h3 style="margin:0; color:#2c3e50;">✏️ تعديل فاتورة الأرشيف: <span style="color:#8B5A2B;">${inv.customerName || ''}</span> <small style="color:#666;">(#${inv.turnNumber || inv.queueNumber || ''})</small></h3>
+                    <small style="color:#666;">يمكنك تعديل الكمية أو السعر أو تحويل الحالة بين نقداً ودين لتحديث الديون والصندوق تلقائياً</small>
+                </div>
+                <button type="button" onclick="document.getElementById('editInvoiceModal').style.display='none'" style="background:#e74c3c; color:#fff; border:none; padding:5px 11px; border-radius:4px; cursor:pointer; font-size:13px;">إغلاق ✖</button>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:14px;">
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:4px;">اسم الزبون:</label>
+                    <input type="text" id="editInvCustomerName" value="${(inv.customerName || '').replace(/"/g, '&quot;')}" style="width:100%; padding:7px; border:1px solid #bbb; border-radius:5px;">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:4px;">السائق / السيارة:</label>
+                    <input type="text" id="editInvCarNumber" value="${(inv.carNumber || '---').replace(/"/g, '&quot;')}" style="width:100%; padding:7px; border:1px solid #bbb; border-radius:5px;">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:4px;">حالة الدفع:</label>
+                    <select id="editInvPaymentStatus" style="width:100%; padding:7px; border:1px solid #8B5A2B; border-radius:5px; font-weight:bold; background:#fffdf7;">
+                        <option value="نقداً" ${currentStatus === 'نقداً' ? 'selected' : ''}>نقداً</option>
+                        <option value="دين" ${currentStatus === 'دين' ? 'selected' : ''}>دين</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="overflow-x:auto; margin-bottom:14px;">
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="background:#8B5A2B; color:#fff;">
+                            <th style="padding:8px; border:1px solid #ccc; text-align:right;">المادة</th>
+                            <th style="padding:8px; border:1px solid #ccc; text-align:center;">الكمية (م3)</th>
+                            <th style="padding:8px; border:1px solid #ccc; text-align:center;">السعر ($)</th>
+                            <th style="padding:8px; border:1px solid #ccc; text-align:center;">الإجمالي ($)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="editInvItemsBody">${itemsRowsHtml}</tbody>
+                </table>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#f4f6f7; padding:10px 14px; border-radius:6px; margin-bottom:14px;">
+                <span style="font-weight:bold; font-size:14px;">الإجمالي الكلي للفاتورة:</span>
+                <span id="editInvGrandTotalPreview" style="font-weight:bold; font-size:17px; color:#27ae60;">$${Number(inv.grandTotal || 0).toFixed(2)}</span>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button type="button" onclick="document.getElementById('editInvoiceModal').style.display='none'" style="background:#7f8c8d; color:#fff; border:none; padding:8px 16px; border-radius:5px; cursor:pointer; font-size:13px;">إلغاء</button>
+                <button type="button" onclick="window.saveEditedInvoice('${safeDocId}')" style="background:#27ae60; color:#fff; border:none; padding:8px 18px; border-radius:5px; cursor:pointer; font-weight:bold; font-size:13px;">💾 حفظ التعديلات</button>
+            </div>
+        </div>
+    `;
+
+    window.__recalcEditInvoiceModalTotal();
+};
+
+window.__recalcEditInvoiceModalTotal = function() {
+    let sum = 0;
+    document.querySelectorAll('#editInvItemsBody tr.edit-inv-item-row').forEach(row => {
+        const q = parseFloat(row.querySelector('.edit-inv-mat-qty')?.value) || 0;
+        const p = parseFloat(row.querySelector('.edit-inv-mat-price')?.value) || 0;
+        const lineTotal = q * p;
+        sum += lineTotal;
+        const totalCell = row.querySelector('.edit-inv-mat-total');
+        if (totalCell) totalCell.innerText = `$${lineTotal.toFixed(2)}`;
+    });
+    const grandPreview = document.getElementById('editInvGrandTotalPreview');
+    if (grandPreview) grandPreview.innerText = `$${sum.toFixed(2)}`;
+};
+
+window.saveEditedInvoice = async function(docOrLocalId) {
+    const inv = latestArchiveInvoicesCache.find(item => String(item.firebaseId) === String(docOrLocalId) || String(item.localId) === String(docOrLocalId));
+    if (!inv) return;
+
+    const newCustomerName = (document.getElementById('editInvCustomerName')?.value || '').trim();
+    const newCarNumber = (document.getElementById('editInvCarNumber')?.value || '---').trim() || '---';
+    const newPaymentStatus = document.getElementById('editInvPaymentStatus')?.value === 'دين' ? 'دين' : 'نقداً';
+
+    if (!newCustomerName) {
+        alert("يرجى إدخال اسم الزبون!");
+        return;
+    }
+
+    const updatedItems = [];
+    let calculatedGrandTotal = 0;
+
+    document.querySelectorAll('#editInvItemsBody tr.edit-inv-item-row').forEach(row => {
+        const matName = (row.querySelector('.edit-inv-mat-name')?.value || 'مادة عامة').trim();
+        const qty = parseFloat(row.querySelector('.edit-inv-mat-qty')?.value) || 0;
+        const price = parseFloat(row.querySelector('.edit-inv-mat-price')?.value) || 0;
+        const lineTotal = qty * price;
+        calculatedGrandTotal += lineTotal;
+        updatedItems.push({
+            name: matName,
+            qty: qty,
+            price: price,
+            total: lineTotal
+        });
+    });
+
+    const targetId = inv.localId || inv.firebaseId;
+    const updatedFields = {
+        customerName: newCustomerName,
+        carNumber: newCarNumber,
+        paymentStatus: newPaymentStatus,
+        items: updatedItems,
+        grandTotal: calculatedGrandTotal,
+        updatedAt: Date.now()
+    };
+
+    const mergedPayload = Object.assign({}, inv, updatedFields);
+    delete mergedPayload.firebaseId;
+    delete mergedPayload._localId;
+    delete mergedPayload._isOfflinePending;
+
+    // تحديث الطابور المحلي إن وُجد السجل فيه
+    const queue = getOfflineQueue();
+    const idxInQueue = queue.findIndex(q => q.queueId === targetId || (q.payload && q.payload.localId === targetId));
+    if (idxInQueue >= 0) {
+        queue[idxInQueue].payload = Object.assign({}, queue[idxInQueue].payload, updatedFields);
+        saveOfflineQueue(queue);
+    }
+
+    try {
+        if (inv.firebaseId && !String(inv.firebaseId).startsWith('inv_')) {
+            await invoicesCollection.doc(inv.firebaseId).set(updatedFields, { merge: true });
+        } else if (targetId) {
+            await invoicesCollection.doc(targetId).set(mergedPayload, { merge: true });
+            const filtered = getOfflineQueue().filter(q => q.queueId !== targetId);
+            saveOfflineQueue(filtered);
+        }
+    } catch (err) {
+        console.warn("تم حفظ التعديل محلياً وسيُزامن مع Firestore عند توفر الاتصال:", err);
+        enqueueOfflineAction('invoice', 'invoices', mergedPayload, targetId);
+    }
+
+    const modalEl = document.getElementById('editInvoiceModal');
+    if (modalEl) modalEl.style.display = 'none';
+
+    alert("تم حفظ تعديل الفاتورة وتحديث الديون والصندوق بنجاح!");
+    loadInvoices();
+    loadDebtsTable();
+    calculateCashflow();
+    loadDailyMaterialsStats();
+};
+
 // دالة جلب الأرشيف وترتيبه تصاعدياً مع فلترة حسب مقلع المحاسب الحالي
 function loadInvoices() {
     const archiveContainer = document.getElementById('fullArchiveList');
@@ -1597,6 +1799,7 @@ function loadInvoices() {
             return numA - numB;
         });
 
+        latestArchiveInvoicesCache = invoicesList;
         calculateCashflow();
 
         if (archiveContainer) {
@@ -1604,15 +1807,15 @@ function loadInvoices() {
     <table class="items-table" style="width: 100%; margin-top: 10px; border-collapse: collapse;">
         <thead>
             <tr style="background: #8B5A2B; color: white;">
-                <th style="padding: 10px; border: 1px solid #ddd; width: 15%;">المقلع</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">رقم الدور</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 14%;">المقلع</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 9%;">رقم الدور</th>
                 <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">التاريخ</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 15%;">اسم الزبون</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">السائق</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 20%;">المواد والكميات</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 14%;">اسم الزبون</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 9%;">السائق</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 18%;">المواد والكميات</th>
                 <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">الإجمالي ($)</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">حالة الدفع</th>
-                <th style="padding: 10px; border: 1px solid #ddd; width: 10%;">إجراء</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 9%;">حالة الدفع</th>
+                <th style="padding: 10px; border: 1px solid #ddd; width: 13%;">إجراء</th>
             </tr>
         </thead>
         <tbody>
@@ -1626,6 +1829,7 @@ function loadInvoices() {
                     });
                 }
                 const pendingBadge = inv._isOfflinePending ? `<div style="font-size:10px; color:#d35400;">⏳ بانتظار المزامنة</div>` : '';
+                const safeEditId = String(inv.firebaseId || inv.localId || '').replace(/'/g, "\\'");
 
                 html += `
                     <tr>
@@ -1638,7 +1842,10 @@ function loadInvoices() {
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;"><b>$${Number(inv.grandTotal || 0).toFixed(2)}</b></td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color:${inv.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${inv.paymentStatus || '---'}</td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                            <button class="btn-del" onclick="deleteInvoice('${inv.firebaseId}')" style="background:#c0392b; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">حذف X</button>
+                            <div style="display:flex; gap:5px; justify-content:center; flex-wrap:wrap;">
+                                <button type="button" onclick="openEditInvoiceModal('${safeEditId}')" style="background:#2980b9; color:white; border:none; padding:5px 9px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ تعديل</button>
+                                <button type="button" class="btn-del" onclick="deleteInvoice('${safeEditId}')" style="background:#c0392b; color:white; border:none; padding:5px 9px; border-radius:4px; cursor:pointer; font-size:12px;">حذف X</button>
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -1667,54 +1874,149 @@ window.deleteInvoice = function(firebaseId) {
         db.collection("invoices").doc(firebaseId).delete().then(() => {
             alert("تم الحذف بنجاح!");
             loadInvoices();
+            loadDebtsTable();
+            calculateCashflow();
         }).catch((error) => {
             console.error("خطأ في الحذف: ", error);
         });
     }
 };
 
-// المراسلة الفورية
-function getMessages() { return JSON.parse(localStorage.getItem('quarry_messages') || '[]'); }
-function saveMessages(msgs) { localStorage.setItem('quarry_messages', JSON.stringify(msgs)); }
+// ==========================================
+// المراسلة الفورية الحية عبر Firestore بين المقلع والمشرف العام
+// ==========================================
+let liveMessagesCache = [];
+let unsubscribeMessagesListener = null;
 
-const btnSendMsg = document.getElementById('btnSendMsg');
-if (btnSendMsg) {
-    btnSendMsg.addEventListener('click', function() {
-        const text = document.getElementById('msgInput').value.trim();
-        const quarry = document.getElementById('quarryName').value.trim() || 'مقلع غير مسمى';
-        if (!text) return;
-
-        const msgs = getMessages();
-        msgs.push({ id: Date.now(), sender: quarry, receiver: "المشرف العام", text: text, time: new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' }) });
-        saveMessages(msgs);
-        document.getElementById('msgInput').value = '';
-        loadChatMessages();
-    });
-}
-
-function loadChatMessages() {
-    const msgs = getMessages();
+function renderChatMessagesFromList(msgs) {
     const box = document.getElementById('chatMessages');
     if (!box) return;
-    const myQuarry = document.getElementById('quarryName').value.trim();
+
+    const myQuarry = (localStorage.getItem('savedQuarryName') || document.getElementById('quarryName')?.value || '').trim();
     box.innerHTML = '';
-    msgs.forEach(m => {
-        if (m.sender === myQuarry || m.receiver === myQuarry) {
-            box.innerHTML += `
-                <div class="chat-msg ${m.sender === myQuarry ? 'msg-sender' : 'msg-receiver'}">
-                    <div><strong>${m.sender}:</strong> ${m.text} <span style="font-size:10px; color:#888;">${m.time}</span></div>
-                    <button class="btn-del-msg" onclick="deleteMessage(${m.id})">حذف</button>
+
+    const relevantMsgs = msgs.filter(m => {
+        if (!myQuarry) return true;
+        return m.sender === myQuarry || m.receiver === myQuarry || (m.sender === "المشرف العام" && (!m.receiver || m.receiver === myQuarry || m.receiver === "الكل"));
+    });
+
+    if (relevantMsgs.length === 0) {
+        box.innerHTML = `<p style="color:#777; font-size:13px; text-align:center;">لا توجد رسائل بعد. ابدأ المراسلة مع المشرف العام.</p>`;
+        return;
+    }
+
+    relevantMsgs.forEach(m => {
+        const isMine = m.sender === myQuarry;
+        const safeId = String(m.id || '').replace(/'/g, "\\'");
+        box.innerHTML += `
+            <div class="chat-msg ${isMine ? 'msg-sender' : 'msg-receiver'}">
+                <div>
+                    <strong>${m.sender || 'مستخدم'}:</strong> ${m.text || ''}
+                    <span style="font-size:10px; color:#666;">${m.time || ''}</span>
                 </div>
-            `;
+                <button type="button" class="btn-del-msg" onclick="deleteMessage('${safeId}')">حذف</button>
+            </div>
+        `;
+    });
+
+    box.scrollTop = box.scrollHeight;
+}
+
+function updateUnreadBadgeFromList(msgs) {
+    const myQuarryName = (localStorage.getItem('savedQuarryName') || document.getElementById('quarryName')?.value || '').trim();
+    const badge = document.getElementById('msgBadge');
+    if (!badge) return;
+
+    const unreadCount = msgs.filter(m =>
+        m.sender === "المشرف العام" &&
+        !m.read &&
+        (!m.receiver || m.receiver === myQuarryName || m.receiver === "الكل")
+    ).length;
+
+    if (unreadCount > 0) {
+        badge.innerText = unreadCount;
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function listenToFirestoreMessages() {
+    if (typeof unsubscribeMessagesListener === 'function') {
+        unsubscribeMessagesListener();
+    }
+
+    unsubscribeMessagesListener = messagesCollection
+        .orderBy('timestamp', 'asc')
+        .onSnapshot((snapshot) => {
+            const list = [];
+            snapshot.forEach(doc => {
+                list.push({ id: doc.id, ...doc.data() });
+            });
+            liveMessagesCache = list;
+            renderChatMessagesFromList(liveMessagesCache);
+            updateUnreadBadgeFromList(liveMessagesCache);
+        }, (err) => {
+            console.error("خطأ في الاستماع لرسائل Firestore:", err);
+        });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const sendMsgBtnEl = document.getElementById('btnSendMsg');
+    if (sendMsgBtnEl) {
+        const clonedBtn = sendMsgBtnEl.cloneNode(true);
+        sendMsgBtnEl.parentNode.replaceChild(clonedBtn, sendMsgBtnEl);
+
+        clonedBtn.addEventListener('click', async function() {
+            const msgInputEl = document.getElementById('msgInput');
+            const text = msgInputEl ? msgInputEl.value.trim() : '';
+            const quarry = (localStorage.getItem('savedQuarryName') || document.getElementById('quarryName')?.value || 'مقلع غير مسمى').trim();
+            if (!text) return;
+
+            const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            const newMsg = {
+                id: msgId,
+                sender: quarry,
+                receiver: "المشرف العام",
+                quarryName: quarry,
+                text: text,
+                read: false,
+                time: new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: Date.now()
+            };
+
+            if (msgInputEl) msgInputEl.value = '';
+
+            try {
+                await messagesCollection.doc(msgId).set(newMsg);
+            } catch (err) {
+                console.error("فشل إرسال الرسالة إلى Firestore:", err);
+                alert("تعذر إرسال الرسالة الآن. تأكد من الاتصال بالإنترنت.");
+            }
+        });
+    }
+
+    listenToFirestoreMessages();
+});
+
+window.deleteMessage = async function(id) {
+    if (!id) return;
+    try {
+        await messagesCollection.doc(String(id)).delete();
+    } catch (err) {
+        console.error("خطأ في حذف الرسالة:", err);
+    }
+};
+
+function loadChatMessages() {
+    renderChatMessagesFromList(liveMessagesCache);
+    const myQuarryName = (localStorage.getItem('savedQuarryName') || document.getElementById('quarryName')?.value || '').trim();
+    liveMessagesCache.forEach(m => {
+        if (m.sender === "المشرف العام" && !m.read && (!m.receiver || m.receiver === myQuarryName || m.receiver === "الكل") && m.id) {
+            messagesCollection.doc(String(m.id)).set({ read: true }, { merge: true }).catch(() => {});
         }
     });
 }
-
-window.deleteMessage = function(id) {
-    let msgs = getMessages().filter(m => m.id !== id);
-    saveMessages(msgs);
-    loadChatMessages();
-};
 
 function resetForm() {
     document.getElementById('customerName').value = '';
@@ -2053,8 +2355,8 @@ window.switchTab = function(tabName) {
     }
 };
 
-// حفظ وتثبيت هوية المقلع الكاملة (الاسم + العنوان + الهاتف)
-function saveQuarryNameSetting() {
+// حفظ وتثبيت هوية المقلع الكاملة (محلياً + سحابياً لصفحة المشرف العام)
+async function saveQuarryNameSetting() {
     const nameVal = document.getElementById('quarryName').value.trim();
     const addressVal = document.getElementById('quarryAddress').value.trim();
     const phoneVal = document.getElementById('quarryPhone').value.trim();
@@ -2068,7 +2370,27 @@ function saveQuarryNameSetting() {
     localStorage.setItem('savedQuarryAddress', addressVal || 'غير محدد');
     localStorage.setItem('savedQuarryPhone', phoneVal || 'غير محدد');
 
-    alert(`تم حفظ وتثبيت هوية (${nameVal}) بنجاح!`);
+    const quarryDocId = encodeURIComponent(nameVal);
+    const quarryProfile = {
+        quarryName: nameVal,
+        address: addressVal || 'غير محدد',
+        phone: phoneVal || 'غير محدد',
+        updatedAt: Date.now()
+    };
+
+    try {
+        await quarriesCollection.doc(quarryDocId).set(quarryProfile, { merge: true });
+        alert(`تم حفظ وتثبيت هوية (${nameVal}) وإرسالها للمشرف العام بنجاح!`);
+    } catch (err) {
+        console.warn("تم حفظ الهوية محلياً وسيتم إرسالها عند توفر الاتصال:", err);
+        enqueueOfflineAction('quarry', 'quarries', quarryProfile, 'quarry_' + quarryDocId);
+        alert(`تم حفظ وتثبيت هوية (${nameVal}) محلياً وسيتم مزامنتها مع المشرف العام!`);
+    }
+
+    if (typeof loadInvoices === 'function') loadInvoices();
+    if (typeof loadDebtsTable === 'function') loadDebtsTable();
+    if (typeof loadExpensesTable === 'function') loadExpensesTable();
+    if (typeof listenToFirestoreMessages === 'function') listenToFirestoreMessages();
 }
 
 // استرجاع الهوية الكاملة تلقائياً عند فتح الصفحة
@@ -2080,29 +2402,4 @@ document.addEventListener("DOMContentLoaded", () => {
     if (savedName && document.getElementById('quarryName')) document.getElementById('quarryName').value = savedName;
     if (savedAddress && document.getElementById('quarryAddress')) document.getElementById('quarryAddress').value = savedAddress;
     if (savedPhone && document.getElementById('quarryPhone')) document.getElementById('quarryPhone').value = savedPhone;
-});
-
-// دالة فحص الرسائل الجديدة والتنبيهات من المشرف العام
-function checkNewMessages() {
-    const myQuarryName = localStorage.getItem('savedQuarryName');
-    if (!myQuarryName) return;
-
-    const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
-    const unreadCount = msgs.filter(m => m.receiver === myQuarryName && m.sender === "المشرف العام" && !m.read).length;
-
-    const badge = document.getElementById('msgBadge');
-    if (badge) {
-        if (unreadCount > 0) {
-            badge.innerText = unreadCount;
-            badge.style.display = 'inline-block';
-        } else {
-            badge.style.display = 'none';
-        }
-    }
-}
-
-setInterval(checkNewMessages, 3000);
-
-document.addEventListener("DOMContentLoaded", () => {
-    checkNewMessages();
 });
