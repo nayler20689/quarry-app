@@ -2420,3 +2420,10 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     document.head.appendChild(style);
 })();
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.error('فشل تسجيل Service Worker:', err);
+    });
+  });
+}
