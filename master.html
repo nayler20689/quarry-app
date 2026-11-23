@@ -9,9 +9,32 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <style>
-        .chat-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.3); width: 400px; max-width: 90%; z-index: 1000; }
-        .chat-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
-        
+        .chat-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+            width: 560px;
+            max-width: 92%;
+            max-height: 88vh;
+            overflow-y: auto;
+            z-index: 1005;
+        }
+        .chat-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.55);
+            z-index: 999;
+        }
         .quarries-table {
             width: 100%;
             border-collapse: collapse;
@@ -34,6 +57,83 @@
         .quarries-table tr:hover {
             background: #f8fafc;
         }
+        .master-top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            background: #fdf8f2;
+            border: 1px solid #d7c3a5;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 14px 0;
+        }
+        .btn-master-msg-top {
+            background: #6c3483;
+            color: #fff;
+            border: none;
+            padding: 9px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-master-msg-top:hover {
+            background: #5b2c6f;
+        }
+        .quarry-item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .btn-quarry-chat {
+            background: #2980b9;
+            color: #fff;
+            border: none;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .btn-quarry-chat:hover {
+            background: #1f618d;
+        }
+        .chat-bubble {
+            max-width: 85%;
+            padding: 9px 12px;
+            border-radius: 7px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .chat-bubble-master {
+            align-self: flex-start;
+            background: #e8f6ef;
+            border-right: 4px solid #27ae60;
+        }
+        .chat-bubble-quarry {
+            align-self: flex-end;
+            background: #ebf5fb;
+            border-right: 4px solid #2980b9;
+        }
+        .btn-del-chat-msg {
+            background: #e74c3c;
+            color: #fff;
+            border: none;
+            padding: 2px 7px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -47,7 +147,18 @@
             </div>
         </header>
 
-       <div class="dashboard-grid">
+        <!-- شريط المراسلة العلوي للمشرف العام -->
+        <div class="master-top-bar">
+            <div style="font-weight:bold; color:#5d3a1a; font-size:15px;">
+                📡 تواصل المشرف العام مع المقالع المثبتة
+            </div>
+            <button type="button" class="btn-master-msg-top" onclick="openQuarriesListModal()">
+                <span>💬 مراسلة المقالع</span>
+                <span id="masterTotalUnreadBadge" style="background:#e74c3c; color:#fff; padding:1px 7px; border-radius:12px; font-size:12px; display:none;">0</span>
+            </button>
+        </div>
+
+        <div class="dashboard-grid">
             <div class="stat-card" style="background:#fff; padding:15px; border:1px solid #ddd; border-radius:6px;">
                 <h4>إجمالي مبيعات المقالع ($)</h4>
                 <div class="number" id="totalSalesVal" style="font-size:22px; font-weight:bold; color:#2c3e50;">0.00 $</div>
@@ -92,9 +203,9 @@
             </div>
         </div>
 
-        <!-- سجل الفواتير والمراسلات -->
+        <!-- سجل الفواتير -->
         <div class="tab-content active" style="display: block; margin-top: 30px;">
-            <h3>سجل الفواتير والمراسلات المباشرة</h3>
+            <h3>سجل الفواتير المسجلة</h3>
             <table class="items-table" style="margin-top: 10px;">
                 <thead>
                     <tr>
@@ -105,11 +216,10 @@
                         <th>السائق</th>
                         <th>الإجمالي ($)</th>
                         <th>حالة الدفع</th>
-                        <th>مراسلة</th>
                     </tr>
                 </thead>
                 <tbody id="masterTableBody">
-                    <tr><td colspan="8" style="text-align:center; padding:15px;">جاري التحميل...</td></tr>
+                    <tr><td colspan="7" style="text-align:center; padding:15px;">جاري التحميل...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -123,16 +233,38 @@
         <button onclick="closeArchiveModal()" style="margin-top: 15px; width: 100%; padding: 8px; background: #718096; color: white; border: none; border-radius: 4px; cursor: pointer;">إغلاق</button>
     </div>
 
-    <!-- نافذة الدردشة المنبثقة للمشرف -->
+    <!-- نافذة قائمة المقالع المثبتة للمراسلة -->
+    <div class="chat-overlay" id="quarriesListOverlay" onclick="closeQuarriesListModal()"></div>
+    <div class="chat-modal" id="quarriesListModal">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #8B5A2B; padding-bottom:10px; margin-bottom:14px;">
+            <h3 style="margin:0; color:#2c3e50;">🏭 المقالع المثبتة — اختر مقلعاً للمراسلة</h3>
+            <button type="button" onclick="closeQuarriesListModal()" style="background:#e74c3c; color:#fff; border:none; padding:5px 11px; border-radius:5px; cursor:pointer; font-size:13px;">إغلاق ✖</button>
+        </div>
+        <div id="quarriesListBody" style="display:flex; flex-direction:column; gap:10px;">
+            <p style="color:#777; text-align:center;">جاري تحميل قائمة المقالع...</p>
+        </div>
+    </div>
+
+    <!-- نافذة الدردشة المباشرة مع المقلع المحدد -->
     <div class="chat-overlay" id="chatOverlay" onclick="closeChat()"></div>
     <div class="chat-modal" id="chatModal">
-        <h4 id="chatTargetTitle">مراسلة مقلع</h4>
-        <div id="modalChatMsgs" class="chat-messages" style="max-height: 200px; overflow-y:auto; margin:10px 0; border:1px solid #eee; padding:8px;"></div>
-        <div style="display: flex; gap: 5px;">
-            <input type="text" id="modalMsgInput" placeholder="اكتب رسالة للمقلع..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
-            <button onclick="sendMasterMessage()" style="padding:8px 15px; background:#27ae60; color:white; border:none; border-radius:4px; cursor:pointer;">إرسال</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #8B5A2B; padding-bottom:10px; margin-bottom:12px;">
+            <div>
+                <h4 id="chatTargetTitle" style="margin:0; color:#2c3e50;">مراسلة مقلع</h4>
+                <small style="color:#666;">رسائل فورية عبر السحابة مع إمكانية حذف أي رسالة</small>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button type="button" onclick="backToQuarriesList()" style="background:#7f8c8d; color:#fff; border:none; padding:5px 10px; border-radius:5px; cursor:pointer; font-size:12px;">⬅ المقالع</button>
+                <button type="button" onclick="closeChat()" style="background:#e74c3c; color:#fff; border:none; padding:5px 10px; border-radius:5px; cursor:pointer; font-size:12px;">✖</button>
+            </div>
         </div>
-        <button onclick="closeChat()" style="margin-top:10px; width:100%; padding:6px; background:#95a5a6; color:white; border:none; border-radius:4px; cursor:pointer;">إغلاق</button>
+
+        <div id="modalChatMsgs" style="min-height:220px; max-height:320px; overflow-y:auto; margin:10px 0; border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc; display:flex; flex-direction:column; gap:8px;"></div>
+
+        <div style="display: flex; gap: 6px;">
+            <input type="text" id="modalMsgInput" placeholder="اكتب رسالة للمقلع..." style="flex:1; padding:9px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px;">
+            <button type="button" onclick="sendMasterMessage()" style="padding:9px 16px; background:#27ae60; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">إرسال</button>
+        </div>
     </div>
 
     <script>
@@ -147,14 +279,17 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        const quarriesCol = db.collection("quarries");
+        const messagesCol = db.collection("messages");
 
         let currentTargetQuarry = '';
         let pieChartInstance = null;
         let globalInvoices = [];
         let globalExpenses = [];
+        let globalQuarries = [];
+        let globalMessages = [];
 
         function initMasterDashboard() {
-            // الاستماع الفوري واللحظي لفواتير المقالع من سحابة Firebase
             db.collection("invoices").onSnapshot((querySnapshot) => {
                 globalInvoices = [];
                 querySnapshot.forEach((doc) => {
@@ -165,7 +300,6 @@
                 console.error("خطأ في جلب الفواتير:", error);
             });
 
-            // الاستماع الفوري واللحظي لمصاريف المقالع من سحابة Firebase
             db.collection("expenses").onSnapshot((querySnapshot) => {
                 globalExpenses = [];
                 querySnapshot.forEach((doc) => {
@@ -175,12 +309,50 @@
             }, (error) => {
                 console.log("مجموعة المصاريف غير موجودة أو فارغة بعد.");
             });
+
+            quarriesCol.onSnapshot((querySnapshot) => {
+                globalQuarries = [];
+                querySnapshot.forEach((doc) => {
+                    globalQuarries.push({ id: doc.id, ...doc.data() });
+                });
+                updateMasterDashboard();
+                const listModal = document.getElementById('quarriesListModal');
+                if (listModal && listModal.style.display === 'block') {
+                    renderQuarriesSelectionList();
+                }
+            }, (err) => {
+                console.log("مجموعة المقالع المثبتة غير موجودة بعد:", err);
+            });
+
+            messagesCol.orderBy("timestamp", "asc").onSnapshot((querySnapshot) => {
+                globalMessages = [];
+                querySnapshot.forEach((doc) => {
+                    globalMessages.push({ id: doc.id, ...doc.data() });
+                });
+                updateMasterUnreadBadge();
+                if (currentTargetQuarry) {
+                    loadModalMessages();
+                }
+                const listModal = document.getElementById('quarriesListModal');
+                if (listModal && listModal.style.display === 'block') {
+                    renderQuarriesSelectionList();
+                }
+            }, (err) => {
+                console.error("خطأ في مستمع الرسائل:", err);
+            });
+
+            const inputEl = document.getElementById('modalMsgInput');
+            if (inputEl) {
+                inputEl.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') sendMasterMessage();
+                });
+            }
         }
 
         function updateMasterDashboard() {
             renderTable(globalInvoices);
             calculateStats(globalInvoices, globalExpenses);
-            renderQuarriesTable(globalInvoices, globalExpenses);
+            renderQuarriesTable(globalInvoices, globalExpenses, globalQuarries);
             renderChart(globalInvoices);
         }
 
@@ -189,7 +361,7 @@
             tbody.innerHTML = '';
 
             if (invoices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:15px;">لا توجد عمليات مسجلة حتى الآن في السحابة.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:15px;">لا توجد عمليات مسجلة حتى الآن في السحابة.</td></tr>';
                 return;
             }
 
@@ -205,9 +377,6 @@
                         <td>${row.carNumber || '---'}</td>
                         <td><b>$${amount.toFixed(2)}</b></td>
                         <td style="color:${row.paymentStatus === 'دين' ? 'red' : 'green'}; font-weight:bold;">${row.paymentStatus || '---'}</td>
-                        <td>
-                            <button style="background:#8e44ad; color:white; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;" onclick="openChat('${qName}')">💬 مراسلة</button>
-                        </td>
                     </tr>
                 `;
             });
@@ -215,7 +384,7 @@
 
         function calculateStats(invoices, expenses) {
             let totalSales = 0, totalExpenses = 0;
-            
+
             invoices.forEach(r => {
                 totalSales += Number(r.grandTotal || 0);
             });
@@ -231,13 +400,19 @@
             document.getElementById('netProfitVal').innerText = '$' + netProfit.toFixed(2);
         }
 
-        function renderQuarriesTable(invoices, expenses) {
+        function renderQuarriesTable(invoices, expenses, quarries) {
             const tbody = document.getElementById('quarriesTableBody');
             tbody.innerHTML = '';
 
             const quarriesData = {};
-            
-            // تجميع المبيعات لكل مقلع
+
+            (quarries || []).forEach(q => {
+                const qName = (q.quarryName || '').trim();
+                if (qName && !quarriesData[qName]) {
+                    quarriesData[qName] = { cashSales: 0, debtSales: 0, expenses: 0 };
+                }
+            });
+
             invoices.forEach(r => {
                 const qName = r.quarryName || 'مقلع رئيسي';
                 if (!quarriesData[qName]) {
@@ -252,7 +427,6 @@
                 }
             });
 
-            // تجميع المصاريف لكل مقلع
             expenses.forEach(e => {
                 const qName = e.quarryName || 'مقلع رئيسي';
                 if (!quarriesData[qName]) {
@@ -271,6 +445,7 @@
             allKeys.forEach(qName => {
                 const data = quarriesData[qName];
                 const totalMove = (data.cashSales + data.debtSales) - data.expenses;
+                const encodedName = encodeURIComponent(qName);
                 tbody.innerHTML += `
                     <tr>
                         <td><b>${qName}</b></td>
@@ -279,7 +454,7 @@
                         <td style="color:#c0392b; font-weight:bold;">$${data.expenses.toFixed(2)}</td>
                         <td><b>$${totalMove.toFixed(2)}</b></td>
                         <td>
-                            <button style="background:#2980b9; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="openArchiveModal('${qName}')">عرض الأرشيف</button>
+                            <button style="background:#2980b9; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;" onclick="openArchiveModal(decodeURIComponent('${encodedName}'))">عرض الأرشيف</button>
                         </td>
                     </tr>
                 `;
@@ -338,47 +513,188 @@
             document.getElementById('archiveOverlay').style.display = 'none';
         }
 
-        function openChat(quarryName) {
-            currentTargetQuarry = quarryName;
-            document.getElementById('chatTargetTitle').innerText = 'مراسلة مقلع: ' + quarryName;
+        // نافذة المقالع المثبتة للمراسلة
+        function openQuarriesListModal() {
+            renderQuarriesSelectionList();
+            document.getElementById('quarriesListModal').style.display = 'block';
+            document.getElementById('quarriesListOverlay').style.display = 'block';
+        }
+
+        function closeQuarriesListModal() {
+            document.getElementById('quarriesListModal').style.display = 'none';
+            document.getElementById('quarriesListOverlay').style.display = 'none';
+        }
+
+        function backToQuarriesList() {
+            closeChat();
+            openQuarriesListModal();
+        }
+
+        function renderQuarriesSelectionList() {
+            const box = document.getElementById('quarriesListBody');
+            if (!box) return;
+
+            const namesSet = new Set();
+            const detailsMap = {};
+
+            globalQuarries.forEach(q => {
+                const name = (q.quarryName || '').trim();
+                if (name) {
+                    namesSet.add(name);
+                    detailsMap[name] = { address: q.address || '', phone: q.phone || '' };
+                }
+            });
+
+            globalInvoices.forEach(inv => {
+                const name = (inv.quarryName || '').trim();
+                if (name && name !== 'مقلع غير مسمى') {
+                    namesSet.add(name);
+                    if (!detailsMap[name]) detailsMap[name] = { address: '', phone: '' };
+                }
+            });
+
+            const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, 'ar'));
+            if (sortedNames.length === 0) {
+                box.innerHTML = '<p style="color:#777; text-align:center; padding:12px;">لا توجد مقالع مثبتة حتى الآن.</p>';
+                return;
+            }
+
+            box.innerHTML = sortedNames.map(qName => {
+                const unreadCount = globalMessages.filter(m => m.sender === qName && !m.read).length;
+                const badgeHtml = unreadCount > 0
+                    ? `<span style="background:#e74c3c; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px; margin-right:6px;">${unreadCount} جديدة</span>`
+                    : '';
+                const info = detailsMap[qName] || {};
+                const subText = (info.address || info.phone)
+                    ? `<div style="font-size:12px; color:#666; margin-top:3px;">${info.address ? '📍 ' + info.address : ''} ${info.phone ? ' | 📞 ' + info.phone : ''}</div>`
+                    : '';
+                const encodedName = encodeURIComponent(qName);
+
+                return `
+                    <div class="quarry-item-row">
+                        <div>
+                            <div style="font-weight:bold; font-size:15px; color:#2c3e50;">${qName} ${badgeHtml}</div>
+                            ${subText}
+                        </div>
+                        <button type="button" class="btn-quarry-chat" onclick="openChat(decodeURIComponent('${encodedName}'))">
+                            💬 مراسلة
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function openChat(quarryName) {
+            currentTargetQuarry = (quarryName || '').trim();
+            if (!currentTargetQuarry) return;
+
+            closeQuarriesListModal();
+            document.getElementById('chatTargetTitle').innerText = 'مراسلة مقلع: ' + currentTargetQuarry;
             loadModalMessages();
             document.getElementById('chatModal').style.display = 'block';
             document.getElementById('chatOverlay').style.display = 'block';
+
+            const unreadMsgs = globalMessages.filter(m => m.sender === currentTargetQuarry && !m.read && m.id);
+            for (const m of unreadMsgs) {
+                try {
+                    await messagesCol.doc(String(m.id)).set({ read: true }, { merge: true });
+                } catch (e) {}
+            }
         }
 
         function closeChat() {
             document.getElementById('chatModal').style.display = 'none';
             document.getElementById('chatOverlay').style.display = 'none';
+            currentTargetQuarry = '';
         }
 
         function loadModalMessages() {
-            const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
             const box = document.getElementById('modalChatMsgs');
-            box.innerHTML = '';
-            msgs.forEach(m => {
-                if (m.sender === currentTargetQuarry || m.receiver === currentTargetQuarry) {
-                    box.innerHTML += `<div style="margin-bottom:5px;"><strong>${m.sender}:</strong> ${m.text} <span style="font-size:9px; color:#888;">${m.time}</span></div>`;
-                }
-            });
+            if (!box || !currentTargetQuarry) return;
+
+            const filtered = globalMessages.filter(m =>
+                m.sender === currentTargetQuarry ||
+                m.receiver === currentTargetQuarry ||
+                m.quarryName === currentTargetQuarry
+            );
+
+            if (filtered.length === 0) {
+                box.innerHTML = `<p style="color:#777; text-align:center; font-size:13px; margin:auto;">لا توجد رسائل مع (${currentTargetQuarry}) بعد.</p>`;
+                return;
+            }
+
+            box.innerHTML = filtered.map(m => {
+                const isMaster = m.sender === 'المشرف العام';
+                const bubbleClass = isMaster ? 'chat-bubble-master' : 'chat-bubble-quarry';
+                const safeId = String(m.id || '').replace(/'/g, "\\'");
+                return `
+                    <div class="chat-bubble ${bubbleClass}">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:4px;">
+                            <strong style="font-size:12px; color:#2c3e50;">${m.sender || 'مستخدم'}</strong>
+                            <div style="display:flex; align-items:center; gap:7px;">
+                                <span style="font-size:10px; color:#777;">${m.time || ''}</span>
+                                <button type="button" class="btn-del-chat-msg" onclick="deleteMasterMessage('${safeId}')">حذف</button>
+                            </div>
+                        </div>
+                        <div style="font-size:14px; color:#1a1a1a; word-break:break-word;">${m.text || ''}</div>
+                    </div>
+                `;
+            }).join('');
+
+            box.scrollTop = box.scrollHeight;
         }
 
-        function sendMasterMessage() {
-            const text = document.getElementById('modalMsgInput').value.trim();
-            if (!text) return;
-            const msgs = JSON.parse(localStorage.getItem('quarry_messages') || '[]');
-            msgs.push({
-                id: Date.now(),
-                sender: "المشرف العام",
+        async function sendMasterMessage() {
+            const inputEl = document.getElementById('modalMsgInput');
+            const text = inputEl ? inputEl.value.trim() : '';
+            if (!text || !currentTargetQuarry) return;
+
+            const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            const payload = {
+                id: msgId,
+                sender: 'المشرف العام',
                 receiver: currentTargetQuarry,
+                quarryName: currentTargetQuarry,
                 text: text,
-                time: new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' })
-            });
-            localStorage.setItem('quarry_messages', JSON.stringify(msgs));
-            document.getElementById('modalMsgInput').value = '';
-            loadModalMessages();
+                read: false,
+                time: new Date().toLocaleTimeString('ar-SY', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: Date.now()
+            };
+
+            inputEl.value = '';
+            try {
+                await messagesCol.doc(msgId).set(payload);
+            } catch (err) {
+                console.error("فشل إرسال الرسالة:", err);
+                alert("تعذر إرسال الرسالة الآن. تأكد من الاتصال بالإنترنت.");
+            }
+        }
+
+        async function deleteMasterMessage(msgId) {
+            if (!msgId) return;
+            if (!confirm("هل تريد حذف هذه الرسالة نهائياً؟")) return;
+            try {
+                await messagesCol.doc(String(msgId)).delete();
+            } catch (err) {
+                console.error("خطأ في حذف الرسالة:", err);
+                alert("تعذر حذف الرسالة الآن.");
+            }
+        }
+
+        function updateMasterUnreadBadge() {
+            const badge = document.getElementById('masterTotalUnreadBadge');
+            if (!badge) return;
+            const count = globalMessages.filter(m => m.sender !== 'المشرف العام' && !m.read).length;
+            if (count > 0) {
+                badge.innerText = count;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
         }
 
         document.addEventListener("DOMContentLoaded", initMasterDashboard);
     </script>
+
 </body>
 </html>
